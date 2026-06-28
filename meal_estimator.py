@@ -27,6 +27,7 @@ class MealEstimator:
         if not cleaned_text:
             raise ValueError("Meal text cannot be empty.")
 
+        # `responses.parse` validates the model output directly into our Pydantic schema.
         response = self.client.responses.parse(
             model=self.model,
             instructions=build_estimation_instructions(now_local),

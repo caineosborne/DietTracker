@@ -34,6 +34,7 @@ class MealStore:
         self._ensure_store()
         payload = [meal.model_dump(mode="json") for meal in meals]
 
+        # Write through a temp file to avoid leaving partial JSON behind if the process stops mid-save.
         with NamedTemporaryFile(
             "w",
             encoding="utf-8",
@@ -56,6 +57,7 @@ class MealStore:
         meals = self.load_all()
         updated = False
 
+        # Replace by id rather than position so day edits remain stable after re-sorting by timestamp.
         for index, meal in enumerate(meals):
             if meal.id == updated_meal.id:
                 meals[index] = updated_meal

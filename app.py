@@ -87,6 +87,7 @@ def build_pending_log(raw_text: str, edited_timestamp: datetime) -> PendingMealL
     user_total_override = st.session_state.get("user_total_override")
     user_notes = st.session_state.get("user_notes", "").strip()
 
+    # The editor stores rows in a UI-friendly shape; convert them back to the schema before save.
     items = [editor_row_to_item(item) for item in items_data]
     inferred_mid_total = sum(item.calories_mid for item in items)
     override_value = (
@@ -116,6 +117,7 @@ def build_pending_log(raw_text: str, edited_timestamp: datetime) -> PendingMealL
 
 
 def clear_review_state() -> None:
+    # Drop review widget state so Streamlit recreates those controls cleanly on the next run.
     st.session_state["estimate"] = None
     st.session_state["editable_items"] = []
     st.session_state["last_raw_text"] = ""
@@ -129,6 +131,7 @@ def start_of_day(day_value: date, tzinfo: object) -> datetime:
 
 
 def load_existing_meal_into_editor(meal: MealLog) -> None:
+    # Copy a saved meal into a separate editor state so editing does not mutate the live list view.
     st.session_state["editing_meal_id"] = meal.id
     st.session_state["existing_raw_text"] = meal.raw_text
     st.session_state["existing_items"] = [item_to_editor_row(item) for item in meal.items]
@@ -145,6 +148,7 @@ def clear_existing_editor_state() -> None:
 
 
 def build_updated_meal(original_meal: MealLog, edited_timestamp: datetime) -> MealLog:
+    # Preserve immutable fields like id and created_at while rebuilding the editable parts.
     items = [editor_row_to_item(item) for item in st.session_state["existing_items"]]
     total_low = sum(item.calories_low for item in items)
     total_high = sum(item.calories_high for item in items)
@@ -171,6 +175,7 @@ def render_day_view(store: MealStore) -> None:
     now_local = get_now_local()
     tzinfo = now_local.tzinfo
     selected_day = st.session_state["selected_day"]
+    # The day browser is independent of "today", so all daily queries anchor off the selected date.
     day_start = start_of_day(selected_day, tzinfo)
     meals = store.meals_for_day(day_start)
     total = sum(meal.total_calories_mid for meal in meals)
@@ -222,6 +227,7 @@ def render_day_view(store: MealStore) -> None:
     if editing_meal_id is None:
         return
 
+    # Resolve the editor target from storage again so edits always apply to the latest saved record.
     meals_by_id = {meal.id: meal for meal in store.load_all()}
     editing_meal = meals_by_id.get(editing_meal_id)
     if editing_meal is None:
