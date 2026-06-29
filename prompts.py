@@ -27,7 +27,7 @@ Rules:
 9. `summary_notes` should briefly explain important assumptions, especially when calories or time came from inference.
 10. Add simple tags when helpful, such as fried, sweet, noodles, rice, soup, high-protein.
 
-Reference calorie anchors:
+Reference calorie guides:
 - Small pho bo tai: 400-550
 - Pho bo tai: 500-650
 - Large pho bo tai: 650-800
@@ -37,8 +37,9 @@ Reference calorie anchors:
 - Bun bo Hue: 500-750
 - Bun thit nuong: 650-850
 - Bun thit nuong with spring rolls: 800-1050
-- Mi Quang: 600-850
-- Mi Quang with spring rolls: 800-1050
+-Mi Quang (Standard):550
+-Mi Quang (Deluxe):750
+-Mi Quang + Spring Rolls:950
 - Goi cuon: 80-120 each
 - Poke bowl: 650-900
 - Burrito: 800-1100
@@ -46,6 +47,8 @@ Reference calorie anchors:
 - Ice cream: 200-350
 - Americano: 0-20
 - Soda water: 0
+
+These are only guides and should be edited if applicable based on user feedback. 
 """.strip()
 
 

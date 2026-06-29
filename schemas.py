@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import uuid4
 
@@ -68,3 +68,10 @@ class PendingMealLog(BaseModel):
             notes=self.notes,
             created_at=created_at,
         )
+
+
+class DailyActivityLog(BaseModel):
+    day: date
+    active_calories: int = Field(ge=0)
+    created_at: datetime
+    updated_at: datetime

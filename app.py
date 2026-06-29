@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from statistics import mean
-
 import pandas as pd
 import streamlit as st
 
+from activity_store import ActivityStore
 from meal_estimator import DEFAULT_MODEL, MealEstimator
 from meal_store import MealStore
-from schemas import EstimatedMealItem, MealLog, PendingMealLog
+from schemas import DailyActivityLog, EstimatedMealItem, MealLog, PendingMealLog
 
 st.set_page_config(page_title="Meal Tracker", page_icon="🍜", layout="wide")
+
+DAILY_GOAL_CALORIES = 1900
+RESTING_CALORIES = 2100
+CALORIES_PER_KG = 7000
 
 
 def get_now_local() -> datetime:
@@ -171,7 +174,7 @@ def build_updated_meal(original_meal: MealLog, edited_timestamp: datetime) -> Me
     )
 
 
-def render_day_view(store: MealStore) -> None:
+def render_day_view(store: MealStore, activity_store: ActivityStore) -> None:
     now_local = get_now_local()
     tzinfo = now_local.tzinfo
     selected_day = st.session_state["selected_day"]
@@ -179,6 +182,13 @@ def render_day_view(store: MealStore) -> None:
     day_start = start_of_day(selected_day, tzinfo)
     meals = store.meals_for_day(day_start)
     total = sum(meal.total_calories_mid for meal in meals)
+    activity_log = activity_store.get_for_day(selected_day)
+    active_calories = activity_log.active_calories if activity_log is not None else 0
+    remaining_calories = DAILY_GOAL_CALORIES - total
+    total_burn = RESTING_CALORIES + active_calories
+    calorie_balance = total_burn - total
+    expected_weight_delta_kg = abs(calorie_balance) / CALORIES_PER_KG
+    weight_direction_label = "Est. loss" if calorie_balance >= 0 else "Est. surplus"
 
     st.subheader("Day View")
     nav_columns = st.columns([1, 2, 1])
@@ -195,11 +205,58 @@ def render_day_view(store: MealStore) -> None:
         clear_existing_editor_state()
         st.rerun()
 
-    metric_columns = st.columns(3)
+    metric_columns = st.columns(4)
     metric_columns[0].metric("Meals logged", len(meals))
     metric_columns[1].metric("Daily total", f"{total:,} cal")
-    metric_columns[2].metric("Status", daily_status(total))
+    metric_columns[2].metric(
+        "Vs 1,900 goal",
+        f"{remaining_calories:+,} cal",
+        "remaining" if remaining_calories >= 0 else "over",
+        delta_color="inverse",
+    )
+    metric_columns[3].metric("Status", daily_status(total))
+    guidance_columns = st.columns(3)
+    guidance_columns[0].metric("Active calories", f"{active_calories:,} cal")
+    guidance_columns[1].metric("Total burn", f"{total_burn:,} cal")
+    guidance_columns[2].metric(
+        weight_direction_label,
+        f"{expected_weight_delta_kg:.2f} kg",
+        f"{calorie_balance:+,} cal net",
+        delta_color="normal",
+    )
     st.caption("Target bands: < 1,800 Low | 1,800-2,200 Good deficit | 2,200-2,600 Maintenance-ish | > 2,600 High day")
+    st.caption("Weight guide uses `(2,100 resting + active calories - consumed calories) / 7,000`. A positive net means estimated loss.")
+
+    with st.form(f"active_calories_form_{selected_day.isoformat()}", enter_to_submit=True, border=False):
+        activity_columns = st.columns([2, 1])
+        activity_columns[0].number_input(
+            "Active calories for this day",
+            min_value=0,
+            step=50,
+            value=active_calories,
+            key=f"active_calories_input_{selected_day.isoformat()}",
+            help="Enter calories burned above the 2,100 resting baseline.",
+        )
+        save_activity = activity_columns[1].form_submit_button(
+            "Save Active Calories",
+            width="stretch",
+        )
+
+    if save_activity:
+        now_local = get_now_local()
+        entered_active_calories = int(
+            st.session_state[f"active_calories_input_{selected_day.isoformat()}"]
+        )
+        created_at = activity_log.created_at if activity_log is not None else now_local
+        activity_store.upsert(
+            DailyActivityLog(
+                day=selected_day,
+                active_calories=entered_active_calories,
+                created_at=created_at,
+                updated_at=now_local,
+            )
+        )
+        st.rerun()
 
     if not meals:
         st.info("No meals logged for this day yet.")
@@ -298,15 +355,35 @@ def render_day_view(store: MealStore) -> None:
             st.rerun()
 
 
-def render_week_view(store: MealStore) -> None:
-    now_local = get_now_local()
-    meals = store.meals_for_week(now_local)
+def render_week_view(store: MealStore, activity_store: ActivityStore) -> None:
+    today = get_now_local().date()
+    window_end = today
+    window_start = today - timedelta(days=7)
+    all_meals = store.load_all()
+    meals = [
+        meal for meal in all_meals
+        if window_start <= meal.timestamp.astimezone().date() < window_end
+    ]
     total = sum(meal.total_calories_mid for meal in meals)
+    activity_logs_by_day = {
+        activity.day: activity
+        for activity in activity_store.load_all()
+        if window_start <= activity.day < window_end
+    }
+    tracked_days = sorted(activity_logs_by_day)
+    tracked_meals = [
+        meal for meal in meals
+        if meal.timestamp.astimezone().date() in activity_logs_by_day
+    ]
+    tracked_consumed_total = sum(meal.total_calories_mid for meal in tracked_meals)
+    active_total = sum(activity_logs_by_day[day].active_calories for day in tracked_days)
+    total_burn = sum(RESTING_CALORIES + activity_logs_by_day[day].active_calories for day in tracked_days)
+    calorie_balance = total_burn - tracked_consumed_total
+    expected_weight_delta_kg = abs(calorie_balance) / CALORIES_PER_KG if tracked_days else 0.0
+    weight_direction_label = "loss" if calorie_balance >= 0 else "surplus"
 
-    st.subheader("This Week")
     if not meals:
         st.info("No meals logged this week yet.")
-        return
 
     heavy_meals = sum(meal.total_calories_mid >= 800 for meal in meals)
     fried_extras = sum(
@@ -321,19 +398,27 @@ def render_week_view(store: MealStore) -> None:
         [item for meal in meals for item in meal.items]
     )
 
-    daily_totals: dict[str, int] = {}
-    for meal in meals:
-        day_key = meal.timestamp.astimezone().date().isoformat()
-        daily_totals.setdefault(day_key, 0)
-        daily_totals[day_key] += meal.total_calories_mid
-
     metric_columns = st.columns(5)
     metric_columns[0].metric("Week total", f"{total:,} cal")
-    metric_columns[1].metric("Avg per day", f"{int(mean(daily_totals.values())):,} cal")
+    metric_columns[1].metric("Avg per day", f"{int(total / 7):,} cal")
     metric_columns[2].metric("Heavy meals", heavy_meals)
     metric_columns[3].metric("Fried extras", fried_extras)
     metric_columns[4].metric("Sweets / ice creams", sweets)
-    st.caption(f"Protein quality: **{protein_quality}**")
+    st.caption(
+        f"Window: {window_start.strftime('%d %b')} to {(window_end - timedelta(days=1)).strftime('%d %b')} "
+        f"(last 7 completed days, excluding today {today.strftime('%d %b')})."
+    )
+    if tracked_days:
+        st.caption(
+            f"Protein quality: **{protein_quality}** | Tracked days: **{len(tracked_days)}** | "
+            f"Tracked intake: **{tracked_consumed_total:,} cal** | Active: **{active_total:,} cal** | "
+            f"Total burn: **{total_burn:,} cal** | Net: **{calorie_balance:+,} cal** | "
+            f"Est. {weight_direction_label}: **{expected_weight_delta_kg:.2f} kg**"
+        )
+    else:
+        st.caption(
+            f"Protein quality: **{protein_quality}** | No activity stats recorded in this window, so burn/net/loss are excluded."
+        )
 
 
 def render_app() -> None:
@@ -344,6 +429,7 @@ def render_app() -> None:
     )
 
     store = MealStore()
+    activity_store = ActivityStore()
 
     if "estimate" not in st.session_state:
         st.session_state["estimate"] = None
@@ -408,63 +494,67 @@ def render_app() -> None:
     estimate = st.session_state["estimate"]
     if estimate is not None:
         with st.container(border=True):
-            st.subheader("Review Before Save")
-            info_columns = st.columns(4)
-            info_columns[0].metric("Mid estimate", f"{estimate.total_calories_mid:,} cal")
-            info_columns[1].metric("Range", f"{estimate.total_calories_low:,} - {estimate.total_calories_high:,}")
-            info_columns[2].metric("Time source", estimate.time_source.replace("_", " "))
-            info_columns[3].metric("Parsed timestamp", estimate.consumed_at.strftime("%Y-%m-%d %H:%M"))
-            if estimate.summary_notes:
-                st.caption(estimate.summary_notes)
+            with st.form("save_meal_form", enter_to_submit=True, border=False):
+                st.subheader("Review Before Save")
+                info_columns = st.columns(4)
+                info_columns[0].metric("Mid estimate", f"{estimate.total_calories_mid:,} cal")
+                info_columns[1].metric("Range", f"{estimate.total_calories_low:,} - {estimate.total_calories_high:,}")
+                info_columns[2].metric("Time source", estimate.time_source.replace("_", " "))
+                info_columns[3].metric("Parsed timestamp", estimate.consumed_at.strftime("%Y-%m-%d %H:%M"))
+                if estimate.summary_notes:
+                    st.caption(estimate.summary_notes)
 
-            st.markdown("Manual adjustments are optional and mainly for fixing retrospective entries.")
-            edited_items = st.data_editor(
-                pd.DataFrame(st.session_state["editable_items"]),
-                num_rows="dynamic",
-                width="stretch",
-                key="item_editor",
-                column_config={
-                    "name": st.column_config.TextColumn("Meal"),
-                    "calories_low": st.column_config.NumberColumn("Low", min_value=0, step=1),
-                    "calories_mid": st.column_config.NumberColumn("Mid", min_value=0, step=1),
-                    "calories_high": st.column_config.NumberColumn("High", min_value=0, step=1),
-                    "protein_level": st.column_config.SelectboxColumn(
-                        "Protein",
-                        options=["low", "medium", "good"],
-                    ),
-                    "confidence": st.column_config.SelectboxColumn(
-                        "Confidence",
-                        options=["low", "medium", "high"],
-                    ),
-                    "notes": st.column_config.TextColumn("Notes"),
-                    "tags_text": st.column_config.TextColumn("Tags"),
-                },
-            )
-            st.session_state["editable_items"] = edited_items.to_dict("records")
+                st.markdown("Manual adjustments are optional and mainly for fixing retrospective entries.")
+                st.caption("Press Enter to save once you are done reviewing. In multiline fields, use Cmd+Enter or Ctrl+Enter.")
+                edited_items = st.data_editor(
+                    pd.DataFrame(st.session_state["editable_items"]),
+                    num_rows="dynamic",
+                    width="stretch",
+                    key="item_editor",
+                    column_config={
+                        "name": st.column_config.TextColumn("Meal"),
+                        "calories_low": st.column_config.NumberColumn("Low", min_value=0, step=1),
+                        "calories_mid": st.column_config.NumberColumn("Mid", min_value=0, step=1),
+                        "calories_high": st.column_config.NumberColumn("High", min_value=0, step=1),
+                        "protein_level": st.column_config.SelectboxColumn(
+                            "Protein",
+                            options=["low", "medium", "good"],
+                        ),
+                        "confidence": st.column_config.SelectboxColumn(
+                            "Confidence",
+                            options=["low", "medium", "high"],
+                        ),
+                        "notes": st.column_config.TextColumn("Notes"),
+                        "tags_text": st.column_config.TextColumn("Tags"),
+                    },
+                )
+                st.session_state["editable_items"] = edited_items.to_dict("records")
 
-            edit_columns = st.columns(3)
-            edited_date = edit_columns[0].date_input(
-                "Consumed date",
-                key="timestamp_date",
-            )
-            edited_time = edit_columns[1].time_input(
-                "Consumed time",
-                key="timestamp_time",
-                step=900,
-            )
-            edit_columns[2].number_input(
-                "Override total calories",
-                min_value=0,
-                step=10,
-                key="user_total_override",
-            )
+                edit_columns = st.columns(3)
+                edited_date = edit_columns[0].date_input(
+                    "Consumed date",
+                    key="timestamp_date",
+                )
+                edited_time = edit_columns[1].time_input(
+                    "Consumed time",
+                    key="timestamp_time",
+                    step=900,
+                )
+                edit_columns[2].number_input(
+                    "Override total calories",
+                    min_value=0,
+                    step=10,
+                    key="user_total_override",
+                )
 
-            st.text_area(
-                "Extra notes",
-                key="user_notes",
-                height=80,
-                placeholder="Optional correction or context.",
-            )
+                st.text_area(
+                    "Extra notes",
+                    key="user_notes",
+                    height=80,
+                    placeholder="Optional correction or context.",
+                )
+
+                save_submitted = st.form_submit_button("Save Meal", width="stretch")
 
             edited_timestamp = datetime.combine(
                 edited_date,
@@ -472,7 +562,7 @@ def render_app() -> None:
                 tzinfo=get_now_local().tzinfo,
             )
 
-            if st.button("Save Meal", width="stretch"):
+            if save_submitted:
                 try:
                     pending_log = build_pending_log(
                         st.session_state["last_raw_text"],
@@ -486,11 +576,11 @@ def render_app() -> None:
                     clear_review_state()
                     st.rerun()
 
-    left, right = st.columns(2)
-    with left:
-        render_day_view(store)
-    with right:
-        render_week_view(store)
+    with st.expander("Weekly Summary", expanded=False):
+        render_week_view(store, activity_store)
+
+    with st.expander("Daily Details", expanded=True):
+        render_day_view(store, activity_store)
 
 
 render_app()
