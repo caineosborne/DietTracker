@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
+import re
 import pandas as pd
 import streamlit as st
 
@@ -14,6 +15,24 @@ st.set_page_config(page_title="Meal Tracker", page_icon="🍜", layout="wide")
 DAILY_GOAL_CALORIES = 1900
 RESTING_CALORIES = 2100
 CALORIES_PER_KG = 7000
+TREAT_KEYWORDS = {
+    "ice cream",
+    "icecream",
+    "dessert",
+    "chocolate",
+    "cake",
+    "cookie",
+    "candy",
+    "brownie",
+    "donut",
+    "pastry",
+    "pudding",
+    "sundae",
+    "gelato",
+    "muffin",
+    "tart",
+    "pie",
+}
 
 
 def get_now_local() -> datetime:
@@ -48,8 +67,13 @@ def guess_protein_quality(items: list[EstimatedMealItem]) -> str:
 def count_matching_items(items: list[EstimatedMealItem], keywords: set[str]) -> int:
     count = 0
     for item in items:
-        haystack = " ".join([item.name, item.notes, " ".join(item.tags)]).lower()
-        if any(keyword in haystack for keyword in keywords):
+        text = " ".join([item.name, item.notes]).lower()
+        tags = {tag.lower() for tag in item.tags}
+        if any(
+            keyword in tags
+            or re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+            for keyword in keywords
+        ):
             count += 1
     return count
 
@@ -390,10 +414,7 @@ def render_week_view(store: MealStore, activity_store: ActivityStore) -> None:
         count_matching_items(meal.items, {"spring roll", "spring rolls", "fried", "extra roll"})
         for meal in meals
     )
-    sweets = sum(
-        count_matching_items(meal.items, {"ice cream", "dessert", "sweet", "soda"})
-        for meal in meals
-    )
+    sweets = sum(count_matching_items(meal.items, TREAT_KEYWORDS) for meal in meals)
     protein_quality = guess_protein_quality(
         [item for meal in meals for item in meal.items]
     )
@@ -403,7 +424,7 @@ def render_week_view(store: MealStore, activity_store: ActivityStore) -> None:
     metric_columns[1].metric("Avg per day", f"{int(total / 7):,} cal")
     metric_columns[2].metric("Heavy meals", heavy_meals)
     metric_columns[3].metric("Fried extras", fried_extras)
-    metric_columns[4].metric("Sweets / ice creams", sweets)
+    metric_columns[4].metric("Treats / desserts", sweets)
     st.caption(
         f"Window: {window_start.strftime('%d %b')} to {(window_end - timedelta(days=1)).strftime('%d %b')} "
         f"(last 7 completed days, excluding today {today.strftime('%d %b')})."

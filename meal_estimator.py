@@ -39,3 +39,18 @@ class MealEstimator:
             raise ValueError("The model did not return a structured meal estimate.")
 
         return response.output_parsed
+
+
+if __name__ == "__main__":
+    import sys
+
+    text = " ".join(sys.argv[1:])
+    if not text:
+        raise SystemExit("Usage: python meal_estimator.py '2 eggs and toast'")
+
+    estimator = MealEstimator()
+    result = estimator.estimate(text, datetime.now())
+
+    print(result.model_dump_json(indent=2))
+
+        

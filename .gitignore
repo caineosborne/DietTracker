@@ -14,4 +14,4 @@ wheels/
 .streamlit/secrets.toml
 
 # Local app data
-data/meals.json
+data/

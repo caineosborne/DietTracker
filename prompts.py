@@ -25,7 +25,7 @@ Rules:
    - default_now: no timing information was provided
 8. Use calorie ranges that are plausible, not precise. Ensure low <= mid <= high.
 9. `summary_notes` should briefly explain important assumptions, especially when calories or time came from inference.
-10. Add simple tags when helpful, such as fried, sweet, noodles, rice, soup, high-protein.
+10. Add simple tags when helpful, such as fried, dessert, chocolate, ice-cream, candy, noodles, rice, soup, high-protein.
 
 Reference calorie guides:
 - Small pho bo tai: 400-550

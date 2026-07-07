@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from filelock import FileLock
+
 
 from schemas import MealLog
 
@@ -14,6 +16,7 @@ DATA_FILE = DATA_DIR / "meals.json"
 class MealStore:
     def __init__(self, data_file: Path = DATA_FILE) -> None:
         self.data_file = data_file
+        self.lock_file = Path(f"{data_file}.lock")
         self._ensure_store()
 
     def _ensure_store(self) -> None:
@@ -48,34 +51,37 @@ class MealStore:
         temp_path.replace(self.data_file)
 
     def append(self, meal: MealLog) -> None:
-        meals = self.load_all()
-        meals.append(meal)
-        meals.sort(key=lambda record: record.timestamp)
-        self.save_all(meals)
+        with FileLock(self.lock_file):
+            meals = self.load_all()
+            meals.append(meal)
+            meals.sort(key=lambda record: record.timestamp)
+            self.save_all(meals)
 
     def update(self, updated_meal: MealLog) -> None:
-        meals = self.load_all()
-        updated = False
+        with FileLock(self.lock_file):
+            meals = self.load_all()
+            updated = False
 
-        # Replace by id rather than position so day edits remain stable after re-sorting by timestamp.
-        for index, meal in enumerate(meals):
-            if meal.id == updated_meal.id:
-                meals[index] = updated_meal
-                updated = True
-                break
+            # Replace by id rather than position so day edits remain stable after re-sorting by timestamp.
+            for index, meal in enumerate(meals):
+                if meal.id == updated_meal.id:
+                    meals[index] = updated_meal
+                    updated = True
+                    break
 
-        if not updated:
-            raise ValueError(f"Meal with id {updated_meal.id} was not found.")
+            if not updated:
+                raise ValueError(f"Meal with id {updated_meal.id} was not found.")
 
-        meals.sort(key=lambda record: record.timestamp)
-        self.save_all(meals)
+            meals.sort(key=lambda record: record.timestamp)
+            self.save_all(meals)
 
     def delete(self, meal_id: str) -> None:
-        meals = self.load_all()
-        filtered_meals = [meal for meal in meals if meal.id != meal_id]
-        if len(filtered_meals) == len(meals):
-            raise ValueError(f"Meal with id {meal_id} was not found.")
-        self.save_all(filtered_meals)
+        with FileLock(self.lock_file):
+            meals = self.load_all()
+            filtered_meals = [meal for meal in meals if meal.id != meal_id]
+            if len(filtered_meals) == len(meals):
+                raise ValueError(f"Meal with id {meal_id} was not found.")
+            self.save_all(filtered_meals)
 
     def meals_for_day(self, day_start: datetime) -> list[MealLog]:
         day_end = day_start + timedelta(days=1)
