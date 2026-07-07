@@ -2,24 +2,18 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
-from uuid import uuid4
 
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
-from meal_estimator import MealEstimator
-from meal_store import MealStore
-from schemas import MealLog
-from meal_log_builder import meal_estimate_to_log
-
+from diettracker.domain.meal_builder import build_meal_log
+from diettracker.domain.metrics import get_now_local
+from diettracker.domain.models import MoodEnergyLog
+from diettracker.services.meal_estimator import MealEstimator
+from diettracker.services.mood_parser import parse_mood_command
+from diettracker.stores.meal_store import MealStore
+from diettracker.stores.mood_store import MoodStore
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -27,10 +21,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
-
-def get_now_local() -> datetime:
-    return datetime.now().astimezone()
 
 
 def is_allowed(update: Update) -> bool:
@@ -43,30 +33,55 @@ def is_allowed(update: Update) -> bool:
     return user is not None and str(user.id) == allowed_user_id
 
 
-# def is_allowed(update: Update) -> bool:
-#     user = update.effective_user
-#     if user:
-#         print("TELEGRAM USER ID:", user.id)
-#         print("TELEGRAM USERNAME:", user.username)
-#     return True
-
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
     if not is_allowed(update):
         return
 
     if update.message:
-        await update.message.reply_text(
-            "Send me a meal description and I will add it to your tracker."
+        await update.message.reply_text("Send me a meal description or use /mood <mood> <energy> <notes>.")
+
+
+async def add_mood(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not is_allowed(update):
+        return
+
+    if not update.message:
+        return
+
+    try:
+        parsed_command = parse_mood_command(context.args)
+    except ValueError as exc:
+        await update.message.reply_text(str(exc))
+        return
+
+    now = get_now_local()
+
+    try:
+        MoodStore().append(
+            MoodEnergyLog(
+                timestamp=now,
+                mood_score=parsed_command.mood_score,
+                energy_score=parsed_command.energy_score,
+                notes=parsed_command.notes,
+                created_at=now,
+            )
         )
+    except Exception:
+        logger.exception("Could not add mood")
+        await update.message.reply_text("The mood entry could not be added. Check the bot logs.")
+        return
+
+    await update.message.reply_text(
+        "Mood added.\n\n"
+        f"Mood: {parsed_command.mood_score}/10\n"
+        f"Energy: {parsed_command.energy_score}/10\n"
+        f"Notes: {parsed_command.notes or '(none)'}"
+    )
 
 
-async def add_meal(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
+async def add_meal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    del context
     if not is_allowed(update):
         return
 
@@ -74,9 +89,6 @@ async def add_meal(
         return
 
     raw_text = update.message.text.strip()
-
-
-
     if not raw_text:
         return
 
@@ -84,31 +96,25 @@ async def add_meal(
 
     try:
         now = get_now_local()
-
         estimate = MealEstimator().estimate(raw_text, now)
-
-        meal = meal_estimate_to_log(
+        meal = build_meal_log(
             raw_text=raw_text,
-            estimate=estimate,
+            items=estimate.items,
             timestamp=now,
+            created_at=now,
+            summary_notes=estimate.summary_notes,
         )
-
         MealStore().append(meal)
 
         estimated_mid = sum(item.calories_mid for item in estimate.items)
-
         await update.message.reply_text(
             "Meal added.\n\n"
             f"{raw_text}\n"
             f"Estimated calories: {estimated_mid}"
-)
-
+        )
     except Exception:
         logger.exception("Could not add meal")
-
-        await update.message.reply_text(
-            "The meal could not be added. Check the bot logs."
-        )
+        await update.message.reply_text("The meal could not be added. Check the bot logs.")
 
 
 def main() -> None:
@@ -119,16 +125,9 @@ def main() -> None:
         raise ValueError("TELEGRAM_BOT_TOKEN is not set.")
 
     application = Application.builder().token(token).build()
-
     application.add_handler(CommandHandler("start", start))
-
-    application.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            add_meal,
-        )
-    )
-
+    application.add_handler(CommandHandler("mood", add_mood))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_meal))
     application.run_polling()
 
 

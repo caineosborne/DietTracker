@@ -6,10 +6,9 @@ from datetime import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from prompts import build_estimation_instructions
-from schemas import MealEstimate
-
-DEFAULT_MODEL = "gpt-5.4-mini"
+from diettracker.config import DEFAULT_MODEL
+from diettracker.domain.models import MealEstimate
+from diettracker.services.prompts import build_estimation_instructions
 
 
 class MealEstimator:
@@ -27,7 +26,6 @@ class MealEstimator:
         if not cleaned_text:
             raise ValueError("Meal text cannot be empty.")
 
-        # `responses.parse` validates the model output directly into our Pydantic schema.
         response = self.client.responses.parse(
             model=self.model,
             instructions=build_estimation_instructions(now_local),
@@ -40,17 +38,3 @@ class MealEstimator:
 
         return response.output_parsed
 
-
-if __name__ == "__main__":
-    import sys
-
-    text = " ".join(sys.argv[1:])
-    if not text:
-        raise SystemExit("Usage: python meal_estimator.py '2 eggs and toast'")
-
-    estimator = MealEstimator()
-    result = estimator.estimate(text, datetime.now())
-
-    print(result.model_dump_json(indent=2))
-
-        

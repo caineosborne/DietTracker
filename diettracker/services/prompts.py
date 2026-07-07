@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-
 MEAL_ESTIMATION_PROMPT = """
 You convert free-text food logs into structured calorie estimates for a personal meal tracker.
 
@@ -48,7 +47,7 @@ Reference calorie guides:
 - Americano: 0-20
 - Soda water: 0
 
-These are only guides and should be edited if applicable based on user feedback. 
+These are only guides and should be edited if applicable based on user feedback.
 """.strip()
 
 
@@ -58,3 +57,4 @@ def build_estimation_instructions(now_local: datetime) -> str:
         f"Current local timestamp: {now_local.isoformat()}\n"
         "Return only structured data matching the provided schema."
     )
+
