@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 
 from dotenv import load_dotenv
 from telegram import Update
@@ -21,6 +22,12 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+
+def get_message_timestamp(update: Update) -> datetime:
+    if update.message and update.message.date:
+        return update.message.date.astimezone()
+    return get_now_local()
 
 
 def is_allowed(update: Update) -> bool:
@@ -55,7 +62,7 @@ async def add_mood(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(str(exc))
         return
 
-    now = get_now_local()
+    now = get_message_timestamp(update)
 
     try:
         MoodStore().append(
@@ -95,7 +102,7 @@ async def add_meal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Estimating meal…")
 
     try:
-        now = get_now_local()
+        now = get_message_timestamp(update)
         estimate = MealEstimator().estimate(raw_text, now)
         meal = build_meal_log(
             raw_text=raw_text,

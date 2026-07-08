@@ -150,7 +150,7 @@ def build_week_metrics(
     today: date,
 ) -> WeekMetrics:
     window_end = today
-    window_start = today - timedelta(days=8)
+    window_start = today - timedelta(days=7)
     days_in_window = (window_end - window_start).days
 
     window_meals = [
@@ -199,4 +199,3 @@ def build_week_metrics(
         mood_entries_count=len(window_mood_logs),
         alcohol_days_count=len(alcohol_logs_by_day),
     )
-

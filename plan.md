@@ -193,6 +193,226 @@ meal-tracker/
 
 
 
+# Phase 2 
+
+# Phase 2 Roadmap — Personal Health Tracking
+
+## Goal
+
+Expand the tracker beyond meals while keeping the architecture simple and reusable.
+
+**Do not move to Supabase until these data structures and workflows feel stable.**
+
+---
+
+# Step 1 — Finalise the Meal Architecture
+
+## Completed
+
+* ✅ Telegram meal entry
+* ✅ JSON file locking
+* ✅ Shared `MealEstimate → MealLog` helper
+
+## Remaining
+
+* Move Streamlit validation into its own module so it is no longer tied to the UI.
+* Keep `meal_estimator.py` as an estimate-only CLI.
+* Add a separate `add_meal.py` CLI for estimate + save.
+
+---
+
+# Step 2 — Add New Data Types
+
+## Meditation
+
+Source:
+
+* Manual entry from Streamlit
+* Record whatever meditation app was used
+
+Suggested fields:
+
+* timestamp
+* duration_minutes
+* source
+* notes
+
+---
+
+## Sleep
+
+Source:
+
+* Garmin
+
+Suggested fields:
+
+* timestamp
+* sleep_score
+* sleep_duration
+* notes
+
+---
+
+## Mood / Energy
+
+Capture whenever desired (not just morning/night).
+
+Entry methods:
+
+* Telegram
+*  Streamlit
+
+Example:
+
+```text
+/mood 6 4 tired but mentally okay
+```
+
+Meaning:
+
+* Mood = 6/10
+* Energy = 4/10
+* Notes = "tired but mentally okay"
+
+Suggested fields:
+
+* timestamp
+* mood_score
+* energy_score
+* notes
+* created_at
+
+---
+
+## Alcohol
+
+Simple event log.
+
+Examples:
+
+```text
+/alcohol 0
+/alcohol 2 beers
+/alcohol 4
+```
+
+Suggested fields:
+
+* timestamp
+* drinks
+* notes
+* created_at
+
+---
+
+# Step 3 — Storage
+
+For now, keep JSON.
+
+Suggested files:
+
+```text
+data/
+    meals.json
+    active_calories.json
+    meditation.json
+    sleep.json
+    mood_energy.json
+    alcohol.json
+```
+
+Reuse the existing `MealStore` pattern for each.
+
+---
+
+# Step 4 — Interfaces
+
+## Telegram
+
+Support:
+
+```text
+meal text
+/mood ...
+/alcohol ...
+```
+
+---
+
+## CLI
+
+Support:
+
+```bash
+uv run python add_meal.py "overnight oats"
+
+uv run python add_mood.py 6 4 "tired but okay"
+
+uv run python add_alcohol.py 2
+```
+
+---
+
+## Streamlit
+
+Support:
+
+* Meals
+* Active calories
+* Meditation
+* Sleep
+* Dashboard
+
+Mood and alcohol can remain Telegram/CLI initially.
+
+---
+
+# Step 5 — Dashboard
+
+## Today
+
+* Calories eaten
+* Active calories
+* Sleep score
+* Meditation minutes
+* Latest mood
+* Latest energy
+* Alcohol
+
+---
+
+## Week
+
+* Average calories
+* Average active calories
+* Average sleep score
+* Total meditation
+* Average mood
+* Average energy
+* Total drinks
+
+---
+
+# Step 6 — Supabase (After JSON Stabilises)
+
+Once the workflows have been used for a while and feel stable:
+
+* Replace JSON storage with Supabase.
+* Keep the same public store interface.
+* Swap implementations rather than changing callers.
+
+Suggested tables:
+
+* meal_logs
+* active_calories
+* meditation_logs
+* sleep_logs
+* mood_energy_logs
+* alcohol_logs
+
+The UI and business logic should remain unchanged when the storage layer is replaced.
+
 
 # Phase 2 — Move Storage to Supabase, Still Run Locally
 

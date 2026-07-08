@@ -207,7 +207,7 @@ def render_week_view(
         st.caption(f"Tracked days: **{week_metrics.tracked_days_count}**")
     st.caption(
         f"Window: {week_metrics.window_start.strftime('%d %b')} to {(week_metrics.window_end - timedelta(days=1)).strftime('%d %b')} "
-        f"(last 8 completed days, excluding today {week_metrics.today.strftime('%d %b')})."
+        f"(last 7 completed days, excluding today {week_metrics.today.strftime('%d %b')})."
     )
     st.caption(
         f"Meals logged: **{week_metrics.meals_count}** | Activity days: **{week_metrics.activity_days_count}** | "

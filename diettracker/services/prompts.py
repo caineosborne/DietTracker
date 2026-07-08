@@ -36,9 +36,9 @@ Reference calorie guides:
 - Bun bo Hue: 500-750
 - Bun thit nuong: 650-850
 - Bun thit nuong with spring rolls: 800-1050
--Mi Quang (Standard):550
--Mi Quang (Deluxe):750
--Mi Quang + Spring Rolls:950
+- Mi Quang (Standard):550
+- Mi Quang (Deluxe):750
+- Mi Quang + Spring Rolls:950
 - Goi cuon: 80-120 each
 - Poke bowl: 650-900
 - Burrito: 800-1100

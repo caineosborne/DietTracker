@@ -48,7 +48,7 @@ def render_app() -> None:
         "existing_notes": "",
         "wellness_entry_day": now_local.date(),
         "meal_direct_submit": True,
-        "mood_history_index": 0,
+        "mood_review_index": 0,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
