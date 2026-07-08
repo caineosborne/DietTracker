@@ -72,6 +72,27 @@ class WeekMetrics:
     alcohol_days_count: int
 
 
+@dataclass(frozen=True)
+class HistoryDayMetrics:
+    day: date
+    total_burn: int
+    total_intake: int
+    calorie_balance: int
+    expected_weight_delta_kg: float
+    weight_direction_label: str
+
+
+@dataclass(frozen=True)
+class HistorySummaryMetrics:
+    label: str
+    days_count: int
+    total_burn: int
+    total_intake: int
+    calorie_balance: int
+    expected_weight_delta_kg: float
+    weight_direction_label: str
+
+
 def get_now_local() -> datetime:
     return datetime.now().astimezone()
 
@@ -198,4 +219,66 @@ def build_week_metrics(
         meditation_days_count=len(meditation_logs_by_day),
         mood_entries_count=len(window_mood_logs),
         alcohol_days_count=len(alcohol_logs_by_day),
+    )
+
+
+def build_history_day_metrics(day: date, intake: int, active_calories: int) -> HistoryDayMetrics:
+    total_burn = RESTING_CALORIES + active_calories
+    calorie_balance = total_burn - intake
+    return HistoryDayMetrics(
+        day=day,
+        total_burn=total_burn,
+        total_intake=intake,
+        calorie_balance=calorie_balance,
+        expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG,
+        weight_direction_label="Est. loss" if calorie_balance >= 0 else "Est. gain",
+    )
+
+
+def build_history_metrics(
+    *,
+    meals: list[MealLog],
+    activity_logs: list[DailyActivityLog],
+    today: date,
+) -> list[HistoryDayMetrics]:
+    meals_by_day: dict[date, int] = {}
+    for meal in meals:
+        meal_day = meal.timestamp.astimezone().date()
+        meals_by_day[meal_day] = meals_by_day.get(meal_day, 0) + meal.total_calories_mid
+
+    activity_by_day = {log.day: log.active_calories for log in activity_logs}
+    tracked_days = sorted(set(meals_by_day) | set(activity_by_day))
+    if not tracked_days:
+        return []
+
+    start_day = tracked_days[0]
+    total_days = (today - start_day).days + 1
+    return [
+        build_history_day_metrics(
+            day=start_day + timedelta(days=offset),
+            intake=meals_by_day.get(start_day + timedelta(days=offset), 0),
+            active_calories=activity_by_day.get(start_day + timedelta(days=offset), 0),
+        )
+        for offset in range(total_days)
+    ]
+
+
+def summarize_history_metrics(
+    *,
+    label: str,
+    history: list[HistoryDayMetrics],
+    days: int | None = None,
+) -> HistorySummaryMetrics:
+    window = history if days is None else history[-days:]
+    total_burn = sum(day.total_burn for day in window)
+    total_intake = sum(day.total_intake for day in window)
+    calorie_balance = total_burn - total_intake
+    return HistorySummaryMetrics(
+        label=label,
+        days_count=len(window),
+        total_burn=total_burn,
+        total_intake=total_intake,
+        calorie_balance=calorie_balance,
+        expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG if window else 0.0,
+        weight_direction_label="Est. loss" if calorie_balance >= 0 else "Est. gain",
     )

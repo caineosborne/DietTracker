@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 
 from diettracker.app.formatters import format_minutes
+from diettracker.config import DAILY_GOAL_CALORIES
 from diettracker.domain.metrics import (
     build_day_metrics,
+    build_history_metrics,
     build_week_metrics,
     daily_status,
     get_now_local,
+    summarize_history_metrics,
     start_of_day,
 )
 from diettracker.domain.models import AlcoholLog, DailyActivityLog
@@ -214,3 +219,127 @@ def render_week_view(
         f"Sleep days: **{week_metrics.sleep_days_count}** | Meditation days: **{week_metrics.meditation_days_count}** | "
         f"Mood entries: **{week_metrics.mood_entries_count}** | Alcohol days: **{week_metrics.alcohol_days_count}**"
     )
+
+
+def render_history_view(store: MealStore, activity_store: ActivityStore) -> None:
+    history = build_history_metrics(
+        meals=store.load_all(),
+        activity_logs=activity_store.load_all(),
+        today=get_now_local().date(),
+    )
+
+    if not history:
+        st.info("No meal or activity history yet.")
+        return
+
+    summaries = [
+        summarize_history_metrics(label="Overall", history=history),
+        summarize_history_metrics(label="Last 7 days", history=history, days=7),
+        summarize_history_metrics(label="Last 30 days", history=history, days=30),
+    ]
+
+    summary_columns = st.columns(3)
+    for column, summary in zip(summary_columns, summaries):
+        with column:
+            st.markdown(f"**{summary.label}**")
+            st.caption(f"{summary.days_count} day(s)")
+            st.metric("Total burn", f"{summary.total_burn:,} cal")
+            st.metric("Total intake", f"{summary.total_intake:,} cal")
+            st.metric("Net calorie difference", f"{summary.calorie_balance:+,} cal")
+            st.metric("Expected weight change", f"{summary.expected_weight_delta_kg:.2f} kg", summary.weight_direction_label)
+
+    table_rows = [
+        {
+            "Day": day.day.strftime("%Y-%m-%d"),
+            "Total calorie burn": day.total_burn,
+            "Total calorie intake": day.total_intake,
+            "Net calorie difference": day.calorie_balance,
+            "Expected weight change": f"{day.expected_weight_delta_kg:.2f} kg {day.weight_direction_label.lower().replace('est. ', '')}",
+        }
+        for day in reversed(history)
+    ]
+
+    st.caption(
+        f"Daily history runs from {history[0].day.strftime('%Y-%m-%d')} to {history[-1].day.strftime('%Y-%m-%d')}."
+    )
+    st.caption(
+        "Net calorie difference uses `total burn - total intake`. Expected weight change uses `(net calories) / 7,000`, "
+        "with positive net shown as estimated loss and negative net shown as estimated gain."
+    )
+    chart_data = pd.DataFrame(
+        [
+            {
+                "Day": day.day,
+                "Calories in": day.total_intake,
+                "Calories out": day.total_burn,
+                "Daily difference": day.calorie_balance,
+            }
+            for day in history
+        ]
+    )
+    chart_series = chart_data.melt("Day", var_name="Series", value_name="Calories")
+    series_scale = alt.Scale(
+        domain=["Calories in", "Calories out", "Daily difference"],
+        range=["#d97706", "#2563eb", "#059669"],
+    )
+    hover = alt.selection_point(fields=["Day"], nearest=True, on="pointerover", empty=False)
+
+    line_chart = (
+        alt.Chart(chart_series)
+        .mark_line(strokeWidth=2.5)
+        .encode(
+            x=alt.X("Day:T", title="Day", axis=alt.Axis(format="%Y-%m-%d", labelAngle=-35)),
+            y=alt.Y("Calories:Q", title="Calories"),
+            color=alt.Color("Series:N", scale=series_scale, legend=alt.Legend(title=None)),
+        )
+    )
+    hover_points = line_chart.mark_circle(size=70).encode(
+        opacity=alt.condition(hover, alt.value(1), alt.value(0))
+    )
+    hover_rule = (
+        alt.Chart(chart_data)
+        .mark_rule(color="#94a3b8", strokeDash=[2, 3])
+        .encode(
+            x=alt.X("Day:T", axis=alt.Axis(format="%Y-%m-%d", labelAngle=-35)),
+            opacity=alt.condition(hover, alt.value(1), alt.value(0)),
+            tooltip=[
+                alt.Tooltip("Day:T", title="Day", format="%Y-%m-%d"),
+                alt.Tooltip("Calories in:Q", title="Calories in", format=",.0f"),
+                alt.Tooltip("Calories out:Q", title="Calories out", format=",.0f"),
+                alt.Tooltip("Daily difference:Q", title="Daily difference", format=",.0f"),
+            ],
+        )
+        .add_params(hover)
+    )
+
+    reference_lines = pd.DataFrame(
+        [
+            {"label": "1,900 intake goal", "value": DAILY_GOAL_CALORIES, "color": "#b45309"},
+            {"label": "0 net difference", "value": 0, "color": "#065f46"},
+        ]
+    )
+    rules = (
+        alt.Chart(reference_lines)
+        .mark_rule(strokeDash=[6, 4], strokeWidth=2)
+        .encode(
+            y="value:Q",
+            color=alt.Color("label:N", scale=alt.Scale(domain=reference_lines["label"].tolist(), range=reference_lines["color"].tolist()), legend=None),
+            tooltip=[
+                alt.Tooltip("label:N", title="Reference"),
+                alt.Tooltip("value:Q", title="Calories", format=",.0f"),
+            ],
+        )
+    )
+    labels = (
+        alt.Chart(reference_lines)
+        .mark_text(align="left", dx=8, dy=-6, fontSize=12, fontWeight="bold")
+        .encode(
+            x=alt.value(8),
+            y="value:Q",
+            text="label:N",
+            color=alt.Color("label:N", scale=alt.Scale(domain=reference_lines["label"].tolist(), range=reference_lines["color"].tolist()), legend=None),
+        )
+    )
+
+    st.altair_chart((line_chart + hover_points + hover_rule + rules + labels), use_container_width=True)
+    st.dataframe(table_rows, hide_index=True, use_container_width=True)

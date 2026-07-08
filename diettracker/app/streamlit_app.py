@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from diettracker.app.dashboard_ui import render_day_view, render_week_view
+from diettracker.app.dashboard_ui import render_day_view, render_history_view, render_week_view
 from diettracker.app.meal_ui import render_edit_meal, render_meal_section
 from diettracker.app.mood_ui import render_mood_form
 from diettracker.app.wellness_ui import render_wellness_section
@@ -58,6 +58,9 @@ def render_app() -> None:
 
     with st.expander("Weekly Summary", expanded=False):
         render_week_view(meal_store, activity_store, mood_store, meditation_store, sleep_store, alcohol_store)
+
+    with st.expander("Calorie History", expanded=False):
+        render_history_view(meal_store, activity_store)
 
     with st.expander("Mood", expanded=False):
         st.caption("Telegram and Streamlit mood / energy check-in.")
