@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from diettracker.app.formatters import format_minutes
-from diettracker.config import DAILY_GOAL_CALORIES
+from diettracker.config import DAILY_GOAL_CALORIES, WEIGHT_BASELINE_DAY, WEIGHT_BASELINE_KG
 from diettracker.domain.metrics import (
     build_day_metrics,
     build_history_metrics,
@@ -17,19 +17,39 @@ from diettracker.domain.metrics import (
     summarize_history_metrics,
     start_of_day,
 )
-from diettracker.domain.models import AlcoholLog, DailyActivityLog
-from diettracker.stores.daily_store import ActivityStore, AlcoholStore, MeditationStore, SleepStore
+from diettracker.domain.models import AlcoholLog, DailyActivityLog, WeightLog
+from diettracker.stores.daily_store import ActivityStore, AlcoholStore, MeditationStore, SleepStore, WeightStore
 from diettracker.stores.meal_store import MealStore
 from diettracker.stores.mood_store import MoodStore
 
 
-def render_day_view(store: MealStore, activity_store: ActivityStore, alcohol_store: AlcoholStore) -> None:
+def render_day_view(
+    store: MealStore,
+    activity_store: ActivityStore,
+    alcohol_store: AlcoholStore,
+    weight_store: WeightStore,
+) -> None:
     now_local = get_now_local()
     tzinfo = now_local.tzinfo
     selected_day = st.session_state["selected_day"]
     meals = store.meals_for_day(start_of_day(selected_day, tzinfo))
     activity_log = activity_store.get_for_day(selected_day)
-    day_metrics = build_day_metrics(meals, activity_log)
+    history = build_history_metrics(
+        meals=store.load_all(),
+        activity_logs=activity_store.load_all(),
+        weight_logs=weight_store.load_all(),
+        today=max(get_now_local().date(), selected_day),
+    )
+    selected_history = next((entry for entry in history if entry.day == selected_day), None)
+    actual_weight_log = weight_store.get_for_day(selected_day)
+    day_metrics = build_day_metrics(
+        meals,
+        activity_log,
+        actual_weight_log,
+        selected_history.anchor_weight_kg if selected_history is not None else WEIGHT_BASELINE_KG,
+        selected_history.anchor_day if selected_history is not None else WEIGHT_BASELINE_DAY,
+        selected_history.expected_weight_kg if selected_history is not None else WEIGHT_BASELINE_KG,
+    )
 
     st.subheader("Day View")
     nav_columns = st.columns([1, 2, 1])
@@ -65,8 +85,28 @@ def render_day_view(store: MealStore, activity_store: ActivityStore, alcohol_sto
         f"{day_metrics.calorie_balance:+,} cal net",
         delta_color="normal",
     )
+    weight_columns = st.columns(4)
+    weight_columns[0].metric("Expected weight", f"{day_metrics.expected_weight_kg:.1f} kg")
+    weight_columns[1].metric(
+        "Actual weight",
+        f"{day_metrics.actual_weight_kg:.1f} kg" if day_metrics.actual_weight_kg is not None else "Not logged",
+    )
+    weight_columns[2].metric(
+        "Actual change",
+        f"{day_metrics.actual_weight_delta_kg:.1f} kg" if day_metrics.actual_weight_delta_kg is not None else "Not logged",
+    )
+    weight_columns[3].metric(
+        "Actual vs expected",
+        f"{day_metrics.weight_difference_kg:+.1f} kg" if day_metrics.weight_difference_kg is not None else "Not logged",
+        "positive means above expected",
+        delta_color="inverse",
+    )
     st.caption("Target bands: < 1,800 Low | 1,800-2,200 Good deficit | 2,200-2,600 Maintenance-ish | > 2,600 High day")
     st.caption("Weight guide uses `(2,100 resting + active calories - consumed calories) / 7,000`. A positive net means estimated loss.")
+    st.caption(
+        f"Current weight anchor is {day_metrics.anchor_weight_kg:.1f} kg on {day_metrics.anchor_day.strftime('%Y-%m-%d')}. "
+        "On weigh-in days, expected weight uses the prior day's projection; the new weigh-in becomes the anchor for future days."
+    )
 
     with st.form(f"active_calories_form_{selected_day.isoformat()}", enter_to_submit=True, border=False):
         activity_columns = st.columns([2, 1])
@@ -87,6 +127,38 @@ def render_day_view(store: MealStore, activity_store: ActivityStore, alcohol_sto
             DailyActivityLog(
                 day=selected_day,
                 active_calories=int(st.session_state[f"active_calories_input_{selected_day.isoformat()}"]),
+                created_at=created_at,
+                updated_at=now_local,
+            )
+        )
+        st.rerun()
+
+    existing_weight = actual_weight_log
+    st.subheader("Weight")
+    if existing_weight is not None:
+        st.caption(f"Saved for {selected_day.strftime('%Y-%m-%d')}: {existing_weight.weight_kg:.1f} kg.")
+    else:
+        st.caption("Add a weight only on days you weigh in.")
+
+    with st.form(f"weight_daily_form_{selected_day.isoformat()}", enter_to_submit=True, border=False):
+        weight_columns = st.columns([1, 2])
+        weight_columns[0].number_input(
+            "Weight (kg)",
+            min_value=30.0,
+            max_value=300.0,
+            step=0.1,
+            value=float(existing_weight.weight_kg) if existing_weight is not None else float(day_metrics.expected_weight_kg),
+            key=f"weight_daily_kg_{selected_day.isoformat()}",
+        )
+        save_weight = weight_columns[1].form_submit_button("Save Weight", width="stretch")
+
+    if save_weight:
+        now_local = get_now_local()
+        created_at = existing_weight.created_at if existing_weight is not None else now_local
+        weight_store.upsert(
+            WeightLog(
+                day=selected_day,
+                weight_kg=round(float(st.session_state[f"weight_daily_kg_{selected_day.isoformat()}"]), 1),
                 created_at=created_at,
                 updated_at=now_local,
             )
@@ -221,10 +293,11 @@ def render_week_view(
     )
 
 
-def render_history_view(store: MealStore, activity_store: ActivityStore) -> None:
+def render_history_view(store: MealStore, activity_store: ActivityStore, weight_store: WeightStore) -> None:
     history = build_history_metrics(
         meals=store.load_all(),
         activity_logs=activity_store.load_all(),
+        weight_logs=weight_store.load_all(),
         today=get_now_local().date(),
     )
 
@@ -247,6 +320,20 @@ def render_history_view(store: MealStore, activity_store: ActivityStore) -> None
             st.metric("Total intake", f"{summary.total_intake:,} cal")
             st.metric("Net calorie difference", f"{summary.calorie_balance:+,} cal")
             st.metric("Expected weight change", f"{summary.expected_weight_delta_kg:.2f} kg", summary.weight_direction_label)
+            st.metric("Current anchor", f"{summary.anchor_weight_kg:.1f} kg")
+            st.metric("Expected weight", f"{summary.expected_weight_kg:.1f} kg")
+            st.metric(
+                "Latest actual weight",
+                f"{summary.latest_actual_weight_kg:.1f} kg" if summary.latest_actual_weight_kg is not None else "Not logged",
+            )
+            st.metric(
+                "Actual change",
+                f"{summary.actual_weight_delta_kg:.1f} kg" if summary.actual_weight_delta_kg is not None else "Not logged",
+            )
+            st.metric(
+                "Actual vs expected",
+                f"{summary.weight_difference_kg:+.1f} kg" if summary.weight_difference_kg is not None else "Not logged",
+            )
 
     table_rows = [
         {
@@ -255,6 +342,12 @@ def render_history_view(store: MealStore, activity_store: ActivityStore) -> None
             "Total calorie intake": day.total_intake,
             "Net calorie difference": day.calorie_balance,
             "Expected weight change": f"{day.expected_weight_delta_kg:.2f} kg {day.weight_direction_label.lower().replace('est. ', '')}",
+            "Anchor day": day.anchor_day.strftime("%Y-%m-%d"),
+            "Anchor weight": f"{day.anchor_weight_kg:.1f} kg",
+            "Expected weight": f"{day.expected_weight_kg:.1f} kg",
+            "Actual weight": f"{day.actual_weight_kg:.1f} kg" if day.actual_weight_kg is not None else "",
+            "Actual change": f"{day.actual_weight_delta_kg:.1f} kg" if day.actual_weight_delta_kg is not None else "",
+            "Actual vs expected": f"{day.weight_difference_kg:+.1f} kg" if day.weight_difference_kg is not None else "",
         }
         for day in reversed(history)
     ]
@@ -266,6 +359,9 @@ def render_history_view(store: MealStore, activity_store: ActivityStore) -> None
         "Net calorie difference uses `total burn - total intake`. Expected weight change uses `(net calories) / 7,000`, "
         "with positive net shown as estimated loss and negative net shown as estimated gain."
     )
+    st.caption(
+        "Expected weight on a weigh-in day is compared against the prior day's projection. After that, the new weigh-in becomes the anchor. If there is no earlier weigh-in, it falls back to 85.3 kg on 2026-06-28."
+    )
     chart_data = pd.DataFrame(
         [
             {
@@ -273,6 +369,8 @@ def render_history_view(store: MealStore, activity_store: ActivityStore) -> None
                 "Calories in": day.total_intake,
                 "Calories out": day.total_burn,
                 "Daily difference": day.calorie_balance,
+                "Expected weight": day.expected_weight_kg,
+                "Actual weight": day.actual_weight_kg,
             }
             for day in history
         ]
@@ -342,4 +440,29 @@ def render_history_view(store: MealStore, activity_store: ActivityStore) -> None
     )
 
     st.altair_chart((line_chart + hover_points + hover_rule + rules + labels), use_container_width=True)
+    weight_chart_data = chart_data.melt(
+        "Day",
+        value_vars=["Expected weight", "Actual weight"],
+        var_name="Series",
+        value_name="Weight",
+    )
+    weight_chart = (
+        alt.Chart(weight_chart_data.dropna())
+        .mark_line(strokeWidth=2.5, point=True)
+        .encode(
+            x=alt.X("Day:T", title="Day", axis=alt.Axis(format="%Y-%m-%d", labelAngle=-35)),
+            y=alt.Y("Weight:Q", title="Weight (kg)", scale=alt.Scale(domain=[75, 90])),
+            color=alt.Color(
+                "Series:N",
+                scale=alt.Scale(domain=["Expected weight", "Actual weight"], range=["#7c3aed", "#dc2626"]),
+                legend=alt.Legend(title=None),
+            ),
+            tooltip=[
+                alt.Tooltip("Day:T", title="Day", format="%Y-%m-%d"),
+                alt.Tooltip("Series:N", title="Series"),
+                alt.Tooltip("Weight:Q", title="Weight (kg)", format=".1f"),
+            ],
+        )
+    )
+    st.altair_chart(weight_chart, use_container_width=True)
     st.dataframe(table_rows, hide_index=True, use_container_width=True)

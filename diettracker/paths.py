@@ -9,4 +9,4 @@ ACTIVITY_FILE = DATA_DIR / "daily_activity.json"
 MEDITATION_FILE = DATA_DIR / "meditation.json"
 SLEEP_FILE = DATA_DIR / "sleep.json"
 ALCOHOL_FILE = DATA_DIR / "alcohol.json"
-
+WEIGHT_FILE = DATA_DIR / "weight.json"

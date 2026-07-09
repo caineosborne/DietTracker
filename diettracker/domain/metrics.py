@@ -4,7 +4,13 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
-from diettracker.config import CALORIES_PER_KG, DAILY_GOAL_CALORIES, RESTING_CALORIES
+from diettracker.config import (
+    CALORIES_PER_KG,
+    DAILY_GOAL_CALORIES,
+    RESTING_CALORIES,
+    WEIGHT_BASELINE_DAY,
+    WEIGHT_BASELINE_KG,
+)
 from diettracker.domain.models import (
     AlcoholLog,
     DailyActivityLog,
@@ -13,6 +19,7 @@ from diettracker.domain.models import (
     MeditationLog,
     MoodEnergyLog,
     SleepLog,
+    WeightLog,
 )
 
 TREAT_KEYWORDS = {
@@ -44,6 +51,12 @@ class DayMetrics:
     calorie_balance: int
     expected_weight_delta_kg: float
     weight_direction_label: str
+    anchor_weight_kg: float
+    anchor_day: date
+    actual_weight_kg: float | None
+    actual_weight_delta_kg: float | None
+    expected_weight_kg: float
+    weight_difference_kg: float | None
 
 
 @dataclass(frozen=True)
@@ -80,6 +93,12 @@ class HistoryDayMetrics:
     calorie_balance: int
     expected_weight_delta_kg: float
     weight_direction_label: str
+    anchor_weight_kg: float
+    anchor_day: date
+    expected_weight_kg: float
+    actual_weight_kg: float | None
+    actual_weight_delta_kg: float | None
+    weight_difference_kg: float | None
 
 
 @dataclass(frozen=True)
@@ -91,6 +110,12 @@ class HistorySummaryMetrics:
     calorie_balance: int
     expected_weight_delta_kg: float
     weight_direction_label: str
+    anchor_weight_kg: float
+    anchor_day: date
+    expected_weight_kg: float
+    latest_actual_weight_kg: float | None
+    actual_weight_delta_kg: float | None
+    weight_difference_kg: float | None
 
 
 def get_now_local() -> datetime:
@@ -143,7 +168,14 @@ def average(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
-def build_day_metrics(meals: list[MealLog], activity_log: DailyActivityLog | None) -> DayMetrics:
+def build_day_metrics(
+    meals: list[MealLog],
+    activity_log: DailyActivityLog | None,
+    actual_weight_log: WeightLog | None,
+    anchor_weight_kg: float,
+    anchor_day: date,
+    expected_weight_kg: float,
+) -> DayMetrics:
     total = sum(meal.total_calories_mid for meal in meals)
     active_calories = activity_log.active_calories if activity_log is not None else 0
     remaining_calories = DAILY_GOAL_CALORIES - total
@@ -157,6 +189,16 @@ def build_day_metrics(meals: list[MealLog], activity_log: DailyActivityLog | Non
         calorie_balance=calorie_balance,
         expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG,
         weight_direction_label="Est. loss" if calorie_balance >= 0 else "Est. surplus",
+        anchor_weight_kg=anchor_weight_kg,
+        anchor_day=anchor_day,
+        actual_weight_kg=actual_weight_log.weight_kg if actual_weight_log is not None else None,
+        actual_weight_delta_kg=(
+            anchor_weight_kg - actual_weight_log.weight_kg if actual_weight_log is not None else None
+        ),
+        expected_weight_kg=expected_weight_kg,
+        weight_difference_kg=(
+            actual_weight_log.weight_kg - expected_weight_kg if actual_weight_log is not None else None
+        ),
     )
 
 
@@ -222,7 +264,15 @@ def build_week_metrics(
     )
 
 
-def build_history_day_metrics(day: date, intake: int, active_calories: int) -> HistoryDayMetrics:
+def build_history_day_metrics(
+    day: date,
+    intake: int,
+    active_calories: int,
+    anchor_weight_kg: float,
+    anchor_day: date,
+    expected_weight_kg: float,
+    actual_weight_log: WeightLog | None,
+) -> HistoryDayMetrics:
     total_burn = RESTING_CALORIES + active_calories
     calorie_balance = total_burn - intake
     return HistoryDayMetrics(
@@ -232,6 +282,16 @@ def build_history_day_metrics(day: date, intake: int, active_calories: int) -> H
         calorie_balance=calorie_balance,
         expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG,
         weight_direction_label="Est. loss" if calorie_balance >= 0 else "Est. gain",
+        anchor_weight_kg=anchor_weight_kg,
+        anchor_day=anchor_day,
+        expected_weight_kg=expected_weight_kg,
+        actual_weight_kg=actual_weight_log.weight_kg if actual_weight_log is not None else None,
+        actual_weight_delta_kg=(
+            anchor_weight_kg - actual_weight_log.weight_kg if actual_weight_log is not None else None
+        ),
+        weight_difference_kg=(
+            actual_weight_log.weight_kg - expected_weight_kg if actual_weight_log is not None else None
+        ),
     )
 
 
@@ -239,6 +299,7 @@ def build_history_metrics(
     *,
     meals: list[MealLog],
     activity_logs: list[DailyActivityLog],
+    weight_logs: list[WeightLog],
     today: date,
 ) -> list[HistoryDayMetrics]:
     meals_by_day: dict[date, int] = {}
@@ -247,20 +308,42 @@ def build_history_metrics(
         meals_by_day[meal_day] = meals_by_day.get(meal_day, 0) + meal.total_calories_mid
 
     activity_by_day = {log.day: log.active_calories for log in activity_logs}
-    tracked_days = sorted(set(meals_by_day) | set(activity_by_day))
+    weights_by_day = {log.day: log for log in weight_logs}
+    tracked_days = sorted(set(meals_by_day) | set(activity_by_day) | set(weights_by_day) | {WEIGHT_BASELINE_DAY})
     if not tracked_days:
         return []
 
-    start_day = tracked_days[0]
+    start_day = min(tracked_days[0], WEIGHT_BASELINE_DAY)
     total_days = (today - start_day).days + 1
-    return [
-        build_history_day_metrics(
-            day=start_day + timedelta(days=offset),
-            intake=meals_by_day.get(start_day + timedelta(days=offset), 0),
-            active_calories=activity_by_day.get(start_day + timedelta(days=offset), 0),
+    history: list[HistoryDayMetrics] = []
+    anchor_weight_kg = WEIGHT_BASELINE_KG
+    anchor_day = WEIGHT_BASELINE_DAY
+    expected_weight_kg = WEIGHT_BASELINE_KG
+    for offset in range(total_days):
+        current_day = start_day + timedelta(days=offset)
+        current_weight_log = weights_by_day.get(current_day)
+        intake = meals_by_day.get(current_day, 0)
+        active_calories = activity_by_day.get(current_day, 0)
+        calorie_balance = RESTING_CALORIES + active_calories - intake
+        history.append(
+            build_history_day_metrics(
+                day=current_day,
+                intake=intake,
+                active_calories=active_calories,
+                anchor_weight_kg=anchor_weight_kg,
+                anchor_day=anchor_day,
+                expected_weight_kg=expected_weight_kg,
+                actual_weight_log=current_weight_log,
+            )
         )
-        for offset in range(total_days)
-    ]
+
+        if current_weight_log is not None:
+            anchor_weight_kg = current_weight_log.weight_kg
+            anchor_day = current_day
+            expected_weight_kg = anchor_weight_kg
+
+        expected_weight_kg -= calorie_balance / CALORIES_PER_KG
+    return history
 
 
 def summarize_history_metrics(
@@ -273,6 +356,7 @@ def summarize_history_metrics(
     total_burn = sum(day.total_burn for day in window)
     total_intake = sum(day.total_intake for day in window)
     calorie_balance = total_burn - total_intake
+    latest_actual_entry = next((day for day in reversed(window) if day.actual_weight_kg is not None), None)
     return HistorySummaryMetrics(
         label=label,
         days_count=len(window),
@@ -281,4 +365,10 @@ def summarize_history_metrics(
         calorie_balance=calorie_balance,
         expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG if window else 0.0,
         weight_direction_label="Est. loss" if calorie_balance >= 0 else "Est. gain",
+        anchor_weight_kg=window[-1].anchor_weight_kg if window else WEIGHT_BASELINE_KG,
+        anchor_day=window[-1].anchor_day if window else WEIGHT_BASELINE_DAY,
+        expected_weight_kg=window[-1].expected_weight_kg if window else WEIGHT_BASELINE_KG,
+        latest_actual_weight_kg=latest_actual_entry.actual_weight_kg if latest_actual_entry is not None else None,
+        actual_weight_delta_kg=latest_actual_entry.actual_weight_delta_kg if latest_actual_entry is not None else None,
+        weight_difference_kg=latest_actual_entry.weight_difference_kg if latest_actual_entry is not None else None,
     )

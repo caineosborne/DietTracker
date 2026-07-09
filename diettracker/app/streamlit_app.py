@@ -8,7 +8,7 @@ from diettracker.app.mood_ui import render_mood_form
 from diettracker.app.wellness_ui import render_wellness_section
 from diettracker.config import DEFAULT_MODEL
 from diettracker.domain.metrics import get_now_local
-from diettracker.stores.daily_store import ActivityStore, AlcoholStore, MeditationStore, SleepStore
+from diettracker.stores.daily_store import ActivityStore, AlcoholStore, MeditationStore, SleepStore, WeightStore
 from diettracker.stores.meal_store import MealStore
 from diettracker.stores.mood_store import MoodStore
 
@@ -24,6 +24,7 @@ def render_app() -> None:
     meal_store = MealStore()
     activity_store = ActivityStore()
     alcohol_store = AlcoholStore()
+    weight_store = WeightStore()
     mood_store = MoodStore()
     meditation_store = MeditationStore()
     sleep_store = SleepStore()
@@ -60,7 +61,7 @@ def render_app() -> None:
         render_week_view(meal_store, activity_store, mood_store, meditation_store, sleep_store, alcohol_store)
 
     with st.expander("Calorie History", expanded=False):
-        render_history_view(meal_store, activity_store)
+        render_history_view(meal_store, activity_store, weight_store)
 
     with st.expander("Mood", expanded=False):
         st.caption("Telegram and Streamlit mood / energy check-in.")
@@ -71,5 +72,5 @@ def render_app() -> None:
         render_wellness_section(meditation_store, sleep_store)
 
     with st.expander("Daily Details", expanded=False):
-        render_day_view(meal_store, activity_store, alcohol_store)
+        render_day_view(meal_store, activity_store, alcohol_store, weight_store)
         render_edit_meal(meal_store)

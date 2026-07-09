@@ -118,3 +118,10 @@ class AlcoholLog(BaseModel):
         if "updated_at" not in normalized and "created_at" in normalized:
             normalized["updated_at"] = normalized["created_at"]
         return normalized
+
+
+class WeightLog(BaseModel):
+    day: date
+    weight_kg: float = Field(gt=0)
+    created_at: datetime
+    updated_at: datetime
