@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import altair as alt
 import pandas as pd
@@ -21,6 +22,9 @@ from diettracker.domain.models import AlcoholLog, DailyActivityLog, WeightLog
 from diettracker.stores.daily_store import ActivityStore, AlcoholStore, MeditationStore, SleepStore, WeightStore
 from diettracker.stores.meal_store import MealStore
 from diettracker.stores.mood_store import MoodStore
+
+
+BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 
 
 def render_day_view(
@@ -272,9 +276,6 @@ def render_week_view(
         st.metric("Average calories", f"{week_metrics.average_calories:,} cal")
         st.metric("Average active calories", f"{week_metrics.average_active_calories:,} cal")
         st.metric("Average sleep score", f"{week_metrics.average_sleep_score:.0f}")
-        st.metric("Total meditation", format_minutes(week_metrics.total_meditation))
-        st.metric("Average mood", f"{week_metrics.average_mood:.1f}")
-        st.metric("Average energy", f"{week_metrics.average_energy:.1f}")
         st.metric("Total drinks", f"{week_metrics.total_drinks}")
     with metric_columns[1]:
         st.metric("Tracked intake", f"{week_metrics.tracked_consumed_total:,} cal")
@@ -288,8 +289,7 @@ def render_week_view(
     )
     st.caption(
         f"Meals logged: **{week_metrics.meals_count}** | Activity days: **{week_metrics.activity_days_count}** | "
-        f"Sleep days: **{week_metrics.sleep_days_count}** | Meditation days: **{week_metrics.meditation_days_count}** | "
-        f"Mood entries: **{week_metrics.mood_entries_count}** | Alcohol days: **{week_metrics.alcohol_days_count}**"
+        f"Sleep days: **{week_metrics.sleep_days_count}** | Alcohol days: **{week_metrics.alcohol_days_count}**"
     )
 
 
@@ -413,33 +413,55 @@ def render_history_view(store: MealStore, activity_store: ActivityStore, weight_
     reference_lines = pd.DataFrame(
         [
             {"label": "1,900 intake goal", "value": DAILY_GOAL_CALORIES, "color": "#b45309"},
-            {"label": "0 net difference", "value": 0, "color": "#065f46"},
+            {"label": "0 net difference", "value": 0, "color": "#059669"},
         ]
     )
-    rules = (
-        alt.Chart(reference_lines)
-        .mark_rule(strokeDash=[6, 4], strokeWidth=2)
-        .encode(
-            y="value:Q",
-            color=alt.Color("label:N", scale=alt.Scale(domain=reference_lines["label"].tolist(), range=reference_lines["color"].tolist()), legend=None),
-            tooltip=[
-                alt.Tooltip("label:N", title="Reference"),
-                alt.Tooltip("value:Q", title="Calories", format=",.0f"),
-            ],
-        )
+    reference_tooltips = [
+        alt.Tooltip("label:N", title="Reference"),
+        alt.Tooltip("value:Q", title="Calories", format=",.0f"),
+    ]
+    goal_rule = alt.Chart(reference_lines.iloc[[0]]).mark_rule(
+        color="#b45309", strokeDash=[6, 4], strokeWidth=2
+    ).encode(y="value:Q", tooltip=reference_tooltips)
+    zero_rule = alt.Chart(reference_lines.iloc[[1]]).mark_rule(
+        color="#059669", strokeDash=[6, 4], strokeWidth=2
+    ).encode(y="value:Q", tooltip=reference_tooltips)
+    goal_label = alt.Chart(reference_lines.iloc[[0]]).mark_text(
+        align="left", dx=8, dy=-6, fontSize=12, fontWeight="bold", color="#b45309"
+    ).encode(x=alt.value(8), y="value:Q", text="label:N")
+    zero_label = alt.Chart(reference_lines.iloc[[1]]).mark_text(
+        align="left", dx=8, dy=-6, fontSize=12, fontWeight="bold", color="#059669"
+    ).encode(x=alt.value(8), y="value:Q", text="label:N")
+    rules = goal_rule + zero_rule
+    labels = goal_label + zero_label
+
+    period_year = get_now_local().year
+    period_lines = pd.DataFrame(
+        [
+            {
+                "Day": datetime.combine(
+                    datetime(period_year, 7, 13).date(), time.min, tzinfo=BRISBANE_TZ
+                ),
+                "Boundary": "Period start — 13 Jul",
+            },
+            {
+                "Day": datetime.combine(
+                    datetime(period_year, 7, 26).date(), time.min, tzinfo=BRISBANE_TZ
+                ),
+                "Boundary": "Period end — 26 Jul",
+            },
+        ]
     )
-    labels = (
-        alt.Chart(reference_lines)
-        .mark_text(align="left", dx=8, dy=-6, fontSize=12, fontWeight="bold")
-        .encode(
-            x=alt.value(8),
-            y="value:Q",
-            text="label:N",
-            color=alt.Color("label:N", scale=alt.Scale(domain=reference_lines["label"].tolist(), range=reference_lines["color"].tolist()), legend=None),
-        )
+    period_rules = alt.Chart(period_lines).mark_rule(
+        color="#7c3aed", strokeDash=[4, 3], strokeWidth=2
+    ).encode(
+        x=alt.X("Day:T", title="Day", axis=alt.Axis(format="%Y-%m-%d", labelAngle=-35)),
+        tooltip=[alt.Tooltip("Boundary:N", title="Brisbane time")],
     )
 
-    st.altair_chart((line_chart + hover_points + hover_rule + rules + labels), use_container_width=True)
+    st.altair_chart(
+        (line_chart + hover_points + hover_rule + rules + labels + period_rules), width="stretch"
+    )
     weight_chart_data = chart_data.melt(
         "Day",
         value_vars=["Expected weight", "Actual weight"],
@@ -464,5 +486,5 @@ def render_history_view(store: MealStore, activity_store: ActivityStore, weight_
             ],
         )
     )
-    st.altair_chart(weight_chart, use_container_width=True)
-    st.dataframe(table_rows, hide_index=True, use_container_width=True)
+    st.altair_chart(weight_chart, width="stretch")
+    st.dataframe(table_rows, hide_index=True, width="stretch")

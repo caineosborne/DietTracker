@@ -11,7 +11,12 @@ from diettracker.domain.models import MeditationLog, SleepLog
 from diettracker.stores.daily_store import MeditationStore, SleepStore
 
 
-def render_wellness_section(meditation_store: MeditationStore, sleep_store: SleepStore) -> None:
+def render_wellness_section(
+    meditation_store: MeditationStore,
+    sleep_store: SleepStore,
+    *,
+    show_meditation: bool = True,
+) -> None:
     selected_day = st.session_state["wellness_entry_day"]
 
     with st.container(border=True):
@@ -28,55 +33,56 @@ def render_wellness_section(meditation_store: MeditationStore, sleep_store: Slee
             st.session_state["wellness_entry_day"] = selected_day + timedelta(days=1)
             st.rerun()
 
-        # Section 1: meditation log for the selected day.
-        meditation_log = meditation_store.get_for_day(selected_day)
-        with st.container(border=True):
-            st.subheader("Meditation")
-            if meditation_log is not None:
-                st.caption(
-                    f"Saved for {selected_day.strftime('%Y-%m-%d')}: "
-                    f"{format_minutes(meditation_log.duration_minutes)} from {meditation_log.source or 'manual entry'}."
-                )
-            else:
-                st.caption("Enter the total meditation time for this day.")
-
-            with st.form(f"meditation_form_{selected_day.isoformat()}", enter_to_submit=True, border=False):
-                form_columns = st.columns([1, 1, 2])
-                duration_minutes = form_columns[0].number_input(
-                    "Meditation minutes",
-                    min_value=0,
-                    step=5,
-                    value=meditation_log.duration_minutes if meditation_log is not None else 0,
-                    key=f"meditation_minutes_{selected_day.isoformat()}",
-                )
-                source = form_columns[1].text_input(
-                    "Source",
-                    value=meditation_log.source if meditation_log is not None else "",
-                    key=f"meditation_source_{selected_day.isoformat()}",
-                    placeholder="Headspace, Calm, breathwork, etc.",
-                )
-                notes = form_columns[2].text_input(
-                    "Notes",
-                    value=meditation_log.notes if meditation_log is not None else "",
-                    key=f"meditation_notes_{selected_day.isoformat()}",
-                    placeholder="optional note",
-                )
-                save_meditation = st.form_submit_button("Save Meditation", width="stretch")
-
-            if save_meditation:
-                now_local = get_now_local()
-                created_at = meditation_log.created_at if meditation_log is not None else now_local
-                meditation_store.upsert(
-                    MeditationLog(
-                        day=selected_day,
-                        duration_minutes=int(duration_minutes),
-                        source=source.strip(),
-                        notes=notes.strip(),
-                        created_at=created_at,
-                        updated_at=now_local,
+        if show_meditation:
+            # Section 1: meditation log for the selected day.
+            meditation_log = meditation_store.get_for_day(selected_day)
+            with st.container(border=True):
+                st.subheader("Meditation")
+                if meditation_log is not None:
+                    st.caption(
+                        f"Saved for {selected_day.strftime('%Y-%m-%d')}: "
+                        f"{format_minutes(meditation_log.duration_minutes)} from {meditation_log.source or 'manual entry'}."
                     )
-                )
-                st.rerun()
+                else:
+                    st.caption("Enter the total meditation time for this day.")
+
+                with st.form(f"meditation_form_{selected_day.isoformat()}", enter_to_submit=True, border=False):
+                    form_columns = st.columns([1, 1, 2])
+                    duration_minutes = form_columns[0].number_input(
+                        "Meditation minutes",
+                        min_value=0,
+                        step=5,
+                        value=meditation_log.duration_minutes if meditation_log is not None else 0,
+                        key=f"meditation_minutes_{selected_day.isoformat()}",
+                    )
+                    source = form_columns[1].text_input(
+                        "Source",
+                        value=meditation_log.source if meditation_log is not None else "",
+                        key=f"meditation_source_{selected_day.isoformat()}",
+                        placeholder="Headspace, Calm, breathwork, etc.",
+                    )
+                    notes = form_columns[2].text_input(
+                        "Notes",
+                        value=meditation_log.notes if meditation_log is not None else "",
+                        key=f"meditation_notes_{selected_day.isoformat()}",
+                        placeholder="optional note",
+                    )
+                    save_meditation = st.form_submit_button("Save Meditation", width="stretch")
+
+                if save_meditation:
+                    now_local = get_now_local()
+                    created_at = meditation_log.created_at if meditation_log is not None else now_local
+                    meditation_store.upsert(
+                        MeditationLog(
+                            day=selected_day,
+                            duration_minutes=int(duration_minutes),
+                            source=source.strip(),
+                            notes=notes.strip(),
+                            created_at=created_at,
+                            updated_at=now_local,
+                        )
+                    )
+                    st.rerun()
 
         # Section 2: sleep log for the selected day.
         sleep_log = sleep_store.get_for_day(selected_day)
