@@ -43,6 +43,7 @@ class MealLog(BaseModel):
     user_override: int | None = Field(default=None, ge=0)
     notes: str = ""
     created_at: datetime
+    is_small_snack_allowance: bool = False
 
 
 class DailyActivityLog(BaseModel):

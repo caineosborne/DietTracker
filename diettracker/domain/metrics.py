@@ -41,6 +41,12 @@ TREAT_KEYWORDS = {
     "pie",
 }
 
+# A single meal log can be an incomplete record of a day.  Until at least two
+# meals have been logged, use a neutral day for aggregate calorie and weight
+# calculations rather than projecting a deficit from missing meals.
+MINIMUM_MEAL_ENTRIES_PER_DAY = 2
+NEUTRAL_DAILY_CALORIES = RESTING_CALORIES
+
 
 @dataclass(frozen=True)
 class DayMetrics:
@@ -230,19 +236,35 @@ def build_week_metrics(
     }
     sleep_logs_by_day = {log.day: log for log in sleep_logs if window_start <= log.day < window_end}
     alcohol_logs_by_day = {log.day: log for log in alcohol_logs if window_start <= log.day < window_end}
-    tracked_days = sorted(activity_logs_by_day)
-    tracked_meals = [
-        meal for meal in window_meals if meal.timestamp.astimezone().date() in activity_logs_by_day
-    ]
-    tracked_consumed_total = sum(meal.total_calories_mid for meal in tracked_meals)
-    total_burn = sum(RESTING_CALORIES + activity_logs_by_day[day].active_calories for day in tracked_days)
+    meals_by_day: dict[date, list[MealLog]] = {}
+    for meal in window_meals:
+        meals_by_day.setdefault(meal.timestamp.astimezone().date(), []).append(meal)
+
+    complete_meal_days = {
+        day for day, daily_meals in meals_by_day.items() if len(daily_meals) >= MINIMUM_MEAL_ENTRIES_PER_DAY
+    }
+    days_in_window_range = [window_start + timedelta(days=offset) for offset in range(days_in_window)]
+    daily_intake = {
+        day: sum(meal.total_calories_mid for meal in meals_by_day[day])
+        if day in complete_meal_days
+        else NEUTRAL_DAILY_CALORIES
+        for day in days_in_window_range
+    }
+    daily_burn = {
+        day: RESTING_CALORIES + activity_logs_by_day[day].active_calories
+        if day in complete_meal_days and day in activity_logs_by_day
+        else NEUTRAL_DAILY_CALORIES
+        for day in days_in_window_range
+    }
+    tracked_consumed_total = sum(daily_intake.values())
+    total_burn = sum(daily_burn.values())
     calorie_balance = total_burn - tracked_consumed_total
 
     return WeekMetrics(
         today=today,
         window_start=window_start,
         window_end=window_end,
-        average_calories=int(sum(meal.total_calories_mid for meal in window_meals) / days_in_window) if days_in_window else 0,
+        average_calories=int(tracked_consumed_total / days_in_window) if days_in_window else 0,
         average_active_calories=int(sum(log.active_calories for log in activity_logs_by_day.values()) / days_in_window) if days_in_window else 0,
         average_sleep_score=int(average([float(log.sleep_score) for log in sleep_logs_by_day.values()])),
         total_meditation=sum(log.duration_minutes for log in meditation_logs_by_day.values()),
@@ -252,9 +274,9 @@ def build_week_metrics(
         tracked_consumed_total=tracked_consumed_total,
         total_burn=total_burn,
         calorie_balance=calorie_balance,
-        expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG if tracked_days else 0.0,
+        expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG if days_in_window else 0.0,
         weight_direction_label="loss" if calorie_balance >= 0 else "surplus",
-        tracked_days_count=len(tracked_days),
+        tracked_days_count=len(complete_meal_days),
         meals_count=len(window_meals),
         activity_days_count=len(activity_logs_by_day),
         sleep_days_count=len(sleep_logs_by_day),
@@ -302,10 +324,10 @@ def build_history_metrics(
     weight_logs: list[WeightLog],
     today: date,
 ) -> list[HistoryDayMetrics]:
-    meals_by_day: dict[date, int] = {}
+    meals_by_day: dict[date, list[MealLog]] = {}
     for meal in meals:
         meal_day = meal.timestamp.astimezone().date()
-        meals_by_day[meal_day] = meals_by_day.get(meal_day, 0) + meal.total_calories_mid
+        meals_by_day.setdefault(meal_day, []).append(meal)
 
     activity_by_day = {log.day: log.active_calories for log in activity_logs}
     weights_by_day = {log.day: log for log in weight_logs}
@@ -322,8 +344,14 @@ def build_history_metrics(
     for offset in range(total_days):
         current_day = start_day + timedelta(days=offset)
         current_weight_log = weights_by_day.get(current_day)
-        intake = meals_by_day.get(current_day, 0)
-        active_calories = activity_by_day.get(current_day, 0)
+        daily_meals = meals_by_day.get(current_day, [])
+        has_complete_meal_log = len(daily_meals) >= MINIMUM_MEAL_ENTRIES_PER_DAY
+        intake = (
+            sum(meal.total_calories_mid for meal in daily_meals)
+            if has_complete_meal_log
+            else NEUTRAL_DAILY_CALORIES
+        )
+        active_calories = activity_by_day.get(current_day, 0) if has_complete_meal_log else 0
         calorie_balance = RESTING_CALORIES + active_calories - intake
         history.append(
             build_history_day_metrics(

@@ -249,6 +249,8 @@ def render_day_view(
 
             st.write(meal.raw_text)
             st.write(f"Total: {meal.total_calories_mid:,} cal")
+            if meal.is_small_snack_allowance:
+                st.caption("Automatic small-snacks allowance — delete if you did not need it.")
             if meal.notes:
                 st.caption(meal.notes)
 
@@ -278,11 +280,11 @@ def render_week_view(
         st.metric("Average sleep score", f"{week_metrics.average_sleep_score:.0f}")
         st.metric("Total drinks", f"{week_metrics.total_drinks}")
     with metric_columns[1]:
-        st.metric("Tracked intake", f"{week_metrics.tracked_consumed_total:,} cal")
+        st.metric("Total intake", f"{week_metrics.tracked_consumed_total:,} cal")
         st.metric("Total burn", f"{week_metrics.total_burn:,} cal")
         st.metric("Net", f"{week_metrics.calorie_balance:+,} cal")
         st.metric("Est. weight change", f"{week_metrics.expected_weight_delta_kg:.2f} kg", week_metrics.weight_direction_label)
-        st.caption(f"Tracked days: **{week_metrics.tracked_days_count}**")
+        st.caption(f"Complete meal days: **{week_metrics.tracked_days_count}** (2+ entries)")
     st.caption(
         f"Window: {week_metrics.window_start.strftime('%d %b')} to {(week_metrics.window_end - timedelta(days=1)).strftime('%d %b')} "
         f"(last 7 completed days, excluding today {week_metrics.today.strftime('%d %b')})."
