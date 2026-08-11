@@ -1,17 +1,26 @@
 from datetime import date
 from zoneinfo import ZoneInfo
 
+import pytest
+
+from diettracker import database as database_module
 from diettracker.stores import meal_store as meal_store_module
 from diettracker.stores.meal_store import MealStore
 
 
-def test_small_snack_allowances_are_created_once_and_stay_removed(tmp_path, monkeypatch):
-    monkeypatch.setattr(meal_store_module, "MEALS_FILE", tmp_path / "meals.json")
-    monkeypatch.setattr(
-        meal_store_module,
-        "SMALL_SNACK_ALLOWANCE_REMOVALS_FILE",
-        tmp_path / "small_snack_allowance_removals.json",
-    )
+@pytest.fixture
+def temporary_schema(monkeypatch):
+    schema = "diettracker_test"
+    monkeypatch.setattr(database_module, "SCHEMA", schema)
+    monkeypatch.setattr(meal_store_module, "SCHEMA", schema)
+    with database_module.connection() as conn, conn.cursor() as cursor:
+        cursor.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+    yield
+    with database_module.connection() as conn, conn.cursor() as cursor:
+        cursor.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+
+def test_small_snack_allowances_are_created_once_and_stay_removed(temporary_schema):
     store = MealStore()
     tzinfo = ZoneInfo("Asia/Ho_Chi_Minh")
 

@@ -1,19 +1,58 @@
 from __future__ import annotations
 
+import json
+from datetime import date
+from typing import Generic, TypeVar
+
+from pydantic import BaseModel
+
 from diettracker.config import WEIGHT_BASELINE_DAY, WEIGHT_BASELINE_KG
+from diettracker.database import SCHEMA, connection, initialize_database
 from diettracker.domain.models import DailyActivityLog, WeightLog
-from diettracker.paths import ACTIVITY_FILE, WEIGHT_FILE
-from diettracker.stores.base import DayLogStore
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
-class ActivityStore(DayLogStore[DailyActivityLog]):
+class PostgresDayStore(Generic[ModelT]):
+    def __init__(self, *, table: str, model_type: type[ModelT]) -> None:
+        initialize_database()
+        self.table = table
+        self.model_type = model_type
+
+    def load_all(self) -> list[ModelT]:
+        with connection() as conn, conn.cursor() as cursor:
+            cursor.execute(f"SELECT payload FROM {SCHEMA}.{self.table} ORDER BY day")
+            return [self.model_type.model_validate(row["payload"]) for row in cursor.fetchall()]
+
+    def get_for_day(self, day_value: date) -> ModelT | None:
+        with connection() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"SELECT payload FROM {SCHEMA}.{self.table} WHERE day = %s", (day_value,)
+            )
+            row = cursor.fetchone()
+            return self.model_type.model_validate(row["payload"]) if row else None
+
+    def upsert(self, record: ModelT) -> None:
+        payload = json.loads(record.model_dump_json())
+        with connection() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {SCHEMA}.{self.table} (day, payload)
+                VALUES (%s, %s::jsonb)
+                ON CONFLICT (day) DO UPDATE SET payload = EXCLUDED.payload
+                """,
+                (getattr(record, "day"), json.dumps(payload)),
+            )
+
+
+class ActivityStore(PostgresDayStore[DailyActivityLog]):
     def __init__(self) -> None:
-        super().__init__(data_file=ACTIVITY_FILE, model_type=DailyActivityLog)
+        super().__init__(table="daily_activity", model_type=DailyActivityLog)
 
 
-class WeightStore(DayLogStore[WeightLog]):
+class WeightStore(PostgresDayStore[WeightLog]):
     def __init__(self) -> None:
-        super().__init__(data_file=WEIGHT_FILE, model_type=WeightLog)
+        super().__init__(table="weights", model_type=WeightLog)
         self._ensure_baseline_entry()
 
     def _ensure_baseline_entry(self) -> None:
