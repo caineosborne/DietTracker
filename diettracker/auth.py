@@ -8,6 +8,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import streamlit as st
+from dotenv import load_dotenv
 from streamlit_cookies_manager import EncryptedCookieManager
 
 
@@ -69,6 +70,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def require_login() -> None:
     """Stop rendering unless the visitor has a valid, persistent login."""
+    load_dotenv()
     username = os.getenv("APP_USERNAME")
     password_hash = os.getenv("APP_PASSWORD_HASH")
     session_secret = os.getenv("APP_SESSION_SECRET")
