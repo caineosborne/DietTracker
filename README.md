@@ -12,6 +12,12 @@ uv run python scripts/generate_password_hash.py
 ```
 
 Copy the result into `APP_PASSWORD_HASH` in `.env`, then set `APP_USERNAME` and a long random `APP_SESSION_SECRET`.
+
+Keep the password hash single-quoted in `.env`, because Docker Compose otherwise treats its `$` separators as variable references:
+
+```text
+APP_PASSWORD_HASH='scrypt$...'
+```
 3. Start the local database:
 
 ```bash
