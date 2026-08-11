@@ -6,6 +6,7 @@ import hmac
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -20,6 +21,8 @@ SCRYPT_N = 2**14
 SCRYPT_R = 8
 SCRYPT_P = 1
 SCRYPT_KEY_LENGTH = 32
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LOCAL_ENV_FILE = PROJECT_ROOT / ".env"
 
 
 def hash_password(password: str, *, salt: bytes | None = None) -> str:
@@ -70,13 +73,28 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def require_login() -> None:
     """Stop rendering unless the visitor has a valid, persistent login."""
-    load_dotenv()
+    # Streamlit may be launched from outside the repository, so do not rely on
+    # its working directory when loading local sign-in settings.
+    load_dotenv(dotenv_path=LOCAL_ENV_FILE)
     username = os.getenv("APP_USERNAME")
     password_hash = os.getenv("APP_PASSWORD_HASH")
     session_secret = os.getenv("APP_SESSION_SECRET")
 
-    if not all((username, password_hash, session_secret)):
-        st.error("This app has not been configured for sign-in yet.")
+    missing_settings = tuple(
+        name
+        for name, value in (
+            ("APP_USERNAME", username),
+            ("APP_PASSWORD_HASH", password_hash),
+            ("APP_SESSION_SECRET", session_secret),
+        )
+        if not value
+    )
+    if missing_settings:
+        st.error(
+            "Configuration error: sign-in requires "
+            + ", ".join(missing_settings)
+            + "."
+        )
         st.stop()
 
     cookies = EncryptedCookieManager(prefix=COOKIE_PREFIX, password=session_secret)
