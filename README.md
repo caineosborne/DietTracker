@@ -5,25 +5,32 @@ Personal Streamlit tracker for calories in, calories out, and weight. Free-text 
 ## Setup
 
 1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY`.
-2. Start the local database:
+2. Choose a local password hash (the password itself is never saved):
+
+```bash
+uv run python scripts/generate_password_hash.py
+```
+
+Copy the result into `APP_PASSWORD_HASH` in `.env`, then set `APP_USERNAME` and a long random `APP_SESSION_SECRET`.
+3. Start the local database:
 
 ```bash
 docker compose up -d
 ```
 
-3. Install dependencies:
+4. Install dependencies:
 
 ```bash
 uv sync
 ```
 
-4. Import the existing JSON history once:
+5. Import the existing JSON history once:
 
 ```bash
 uv run python scripts/import_json_data.py
 ```
 
-5. Run the app:
+6. Run the app:
 
 ```bash
 uv run streamlit run app.py
@@ -46,3 +53,14 @@ docker compose stop
 - Add daily active calories and weight in Daily Details.
 - The 200-calorie small-snacks allowance is added automatically each day and can be deleted when it was not needed.
 - Current data is stored in local Postgres. For Railway, its `DATABASE_URL` will replace the local value automatically.
+- The app requires a username and password. A successful sign-in is remembered in that browser for 30 days; use **Log out** in the sidebar to end it sooner.
+
+## Railway sign-in settings
+
+Before deploying the login branch, add these Railway variables to the DietTracker service:
+
+- `APP_USERNAME` — your chosen username.
+- `APP_PASSWORD_HASH` — the output from `scripts/generate_password_hash.py`.
+- `APP_SESSION_SECRET` — a long, random value used to encrypt the browser sign-in cookie.
+
+Do not put your plaintext password in Railway or Git. Changing `APP_SESSION_SECRET` signs out every browser immediately.

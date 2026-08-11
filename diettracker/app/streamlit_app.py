@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from diettracker.auth import require_login
 from diettracker.app.dashboard_ui import render_day_view, render_history_view, render_week_view
 from diettracker.app.meal_ui import render_edit_meal, render_meal_section
 from diettracker.config import DEFAULT_MODEL, SMALL_SNACK_ALLOWANCE_START_DAY
@@ -12,6 +13,7 @@ from diettracker.stores.meal_store import MealStore
 
 def render_app() -> None:
     st.set_page_config(page_title="Meal Tracker", page_icon="🍜", layout="wide")
+    require_login()
     st.title("Meal Tracker")
     st.caption(
         f"Free-text first. Model default: `{DEFAULT_MODEL}`. "
