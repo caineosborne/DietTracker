@@ -70,3 +70,21 @@ Before deploying the login branch, add these Railway variables to the DietTracke
 - `APP_SESSION_SECRET` — a long, random value used to encrypt the browser sign-in cookie.
 
 Do not put your plaintext password in Railway or Git. Changing `APP_SESSION_SECRET` signs out every browser immediately.
+
+## Backups
+
+Railway's built-in database backups require its Pro plan. For this personal app, create a portable local JSON backup instead:
+
+```bash
+uv run python scripts/export_postgres_backup.py
+```
+
+The backup is saved under `backups/`, which is private and ignored by Git. To back up the Railway database, first open a Railway Postgres tunnel, then run the same command in a second terminal with its local `DATABASE_URL`.
+
+To restore a backup, point the database connection at the target database and run:
+
+```bash
+uv run python scripts/restore_postgres_backup.py backups/diettracker-YYYY-MM-DDTHHMMSSZ.json --replace
+```
+
+`--replace` deliberately replaces the current tracker data, so use it only when you intend to recover from a backup.
