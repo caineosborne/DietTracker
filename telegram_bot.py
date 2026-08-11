@@ -10,11 +10,8 @@ from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandl
 
 from diettracker.domain.meal_builder import build_meal_log
 from diettracker.domain.metrics import get_now_local
-from diettracker.domain.models import MoodEnergyLog
 from diettracker.services.meal_estimator import MealEstimator
-from diettracker.services.mood_parser import parse_mood_command
 from diettracker.stores.meal_store import MealStore
-from diettracker.stores.mood_store import MoodStore
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -46,45 +43,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if update.message:
-        await update.message.reply_text("Send me a meal description or use /mood <mood> <energy> <notes>.")
-
-
-async def add_mood(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not is_allowed(update):
-        return
-
-    if not update.message:
-        return
-
-    try:
-        parsed_command = parse_mood_command(context.args)
-    except ValueError as exc:
-        await update.message.reply_text(str(exc))
-        return
-
-    now = get_message_timestamp(update)
-
-    try:
-        MoodStore().append(
-            MoodEnergyLog(
-                timestamp=now,
-                mood_score=parsed_command.mood_score,
-                energy_score=parsed_command.energy_score,
-                notes=parsed_command.notes,
-                created_at=now,
-            )
-        )
-    except Exception:
-        logger.exception("Could not add mood")
-        await update.message.reply_text("The mood entry could not be added. Check the bot logs.")
-        return
-
-    await update.message.reply_text(
-        "Mood added.\n\n"
-        f"Mood: {parsed_command.mood_score}/10\n"
-        f"Energy: {parsed_command.energy_score}/10\n"
-        f"Notes: {parsed_command.notes or '(none)'}"
-    )
+        await update.message.reply_text("Send me a meal description.")
 
 
 async def add_meal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -133,7 +92,6 @@ def main() -> None:
 
     application = Application.builder().token(token).build()
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("mood", add_mood))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, add_meal))
     application.run_polling()
 

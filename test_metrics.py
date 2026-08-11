@@ -34,7 +34,7 @@ class IncompleteMealDayMetricsTests(unittest.TestCase):
         metrics = build_week_metrics(
             meals=[meal(incomplete_day, 600, "one"), meal(complete_day, 800, "two"), meal(complete_day, 900, "three")],
             activity_logs=[activity(incomplete_day, 500), activity(complete_day, 300)],
-            mood_logs=[], meditation_logs=[], sleep_logs=[], alcohol_logs=[], today=today,
+            today=today,
         )
 
         self.assertEqual(metrics.tracked_days_count, 1)

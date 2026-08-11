@@ -7,7 +7,6 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from diettracker.app.formatters import format_minutes
 from diettracker.config import DAILY_GOAL_CALORIES, WEIGHT_BASELINE_DAY, WEIGHT_BASELINE_KG
 from diettracker.domain.metrics import (
     build_day_metrics,
@@ -18,10 +17,9 @@ from diettracker.domain.metrics import (
     summarize_history_metrics,
     start_of_day,
 )
-from diettracker.domain.models import AlcoholLog, DailyActivityLog, WeightLog
-from diettracker.stores.daily_store import ActivityStore, AlcoholStore, MeditationStore, SleepStore, WeightStore
+from diettracker.domain.models import DailyActivityLog, WeightLog
+from diettracker.stores.daily_store import ActivityStore, WeightStore
 from diettracker.stores.meal_store import MealStore
-from diettracker.stores.mood_store import MoodStore
 
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
@@ -30,7 +28,6 @@ BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 def render_day_view(
     store: MealStore,
     activity_store: ActivityStore,
-    alcohol_store: AlcoholStore,
     weight_store: WeightStore,
 ) -> None:
     now_local = get_now_local()
@@ -89,22 +86,7 @@ def render_day_view(
         f"{day_metrics.calorie_balance:+,} cal net",
         delta_color="normal",
     )
-    weight_columns = st.columns(4)
-    weight_columns[0].metric("Expected weight", f"{day_metrics.expected_weight_kg:.1f} kg")
-    weight_columns[1].metric(
-        "Actual weight",
-        f"{day_metrics.actual_weight_kg:.1f} kg" if day_metrics.actual_weight_kg is not None else "Not logged",
-    )
-    weight_columns[2].metric(
-        "Actual change",
-        f"{day_metrics.actual_weight_delta_kg:.1f} kg" if day_metrics.actual_weight_delta_kg is not None else "Not logged",
-    )
-    weight_columns[3].metric(
-        "Actual vs expected",
-        f"{day_metrics.weight_difference_kg:+.1f} kg" if day_metrics.weight_difference_kg is not None else "Not logged",
-        "positive means above expected",
-        delta_color="inverse",
-    )
+    st.metric("Expected weight", f"{day_metrics.expected_weight_kg:.1f} kg")
     st.caption("Target bands: < 1,800 Low | 1,800-2,200 Good deficit | 2,200-2,600 Maintenance-ish | > 2,600 High day")
     st.caption("Weight guide uses `(2,100 resting + active calories - consumed calories) / 7,000`. A positive net means estimated loss.")
     st.caption(
@@ -169,47 +151,6 @@ def render_day_view(
         )
         st.rerun()
 
-    existing_alcohol = alcohol_store.get_for_day(selected_day)
-    st.subheader("Alcohol")
-    if existing_alcohol is not None:
-        st.caption(
-            f"Saved for {selected_day.strftime('%Y-%m-%d')}: {existing_alcohol.standard_drinks} standard drink(s)."
-        )
-    else:
-        st.caption("Enter standard drinks for this day.")
-
-    with st.form(f"alcohol_daily_form_{selected_day.isoformat()}", enter_to_submit=True, border=False):
-        alcohol_columns = st.columns([1, 2])
-        alcohol_columns[0].number_input(
-            "Standard drinks",
-            min_value=0,
-            step=1,
-            value=existing_alcohol.standard_drinks if existing_alcohol is not None else 0,
-            key=f"alcohol_daily_drinks_{selected_day.isoformat()}",
-        )
-        alcohol_columns[1].text_input(
-            "Notes",
-            value=existing_alcohol.notes if existing_alcohol is not None else "",
-            key=f"alcohol_daily_notes_{selected_day.isoformat()}",
-            placeholder="beer, wine, cocktails, etc.",
-        )
-        save_alcohol = st.form_submit_button("Save Alcohol", width="stretch")
-
-    if save_alcohol:
-        now_local = get_now_local()
-        created_at = existing_alcohol.created_at if existing_alcohol is not None else now_local
-        alcohol_store.upsert(
-            AlcoholLog(
-                day=selected_day,
-                timestamp=now_local,
-                standard_drinks=int(st.session_state[f"alcohol_daily_drinks_{selected_day.isoformat()}"]),
-                notes=st.session_state[f"alcohol_daily_notes_{selected_day.isoformat()}"].strip(),
-                created_at=created_at,
-                updated_at=now_local,
-            )
-        )
-        st.rerun()
-
     if not meals:
         st.info("No meals logged for this day yet.")
 
@@ -258,18 +199,10 @@ def render_day_view(
 def render_week_view(
     store: MealStore,
     activity_store: ActivityStore,
-    mood_store: MoodStore,
-    meditation_store: MeditationStore,
-    sleep_store: SleepStore,
-    alcohol_store: AlcoholStore,
 ) -> None:
     week_metrics = build_week_metrics(
         meals=store.load_all(),
         activity_logs=activity_store.load_all(),
-        mood_logs=mood_store.load_all(),
-        meditation_logs=meditation_store.load_all(),
-        sleep_logs=sleep_store.load_all(),
-        alcohol_logs=alcohol_store.load_all(),
         today=get_now_local().date(),
     )
 
@@ -277,8 +210,6 @@ def render_week_view(
     with metric_columns[0]:
         st.metric("Average calories", f"{week_metrics.average_calories:,} cal")
         st.metric("Average active calories", f"{week_metrics.average_active_calories:,} cal")
-        st.metric("Average sleep score", f"{week_metrics.average_sleep_score:.0f}")
-        st.metric("Total drinks", f"{week_metrics.total_drinks}")
     with metric_columns[1]:
         st.metric("Total intake", f"{week_metrics.tracked_consumed_total:,} cal")
         st.metric("Total burn", f"{week_metrics.total_burn:,} cal")
@@ -290,8 +221,7 @@ def render_week_view(
         f"(last 7 completed days, excluding today {week_metrics.today.strftime('%d %b')})."
     )
     st.caption(
-        f"Meals logged: **{week_metrics.meals_count}** | Activity days: **{week_metrics.activity_days_count}** | "
-        f"Sleep days: **{week_metrics.sleep_days_count}** | Alcohol days: **{week_metrics.alcohol_days_count}**"
+        f"Meals logged: **{week_metrics.meals_count}** | Activity days: **{week_metrics.activity_days_count}**"
     )
 
 
@@ -306,36 +236,6 @@ def render_history_view(store: MealStore, activity_store: ActivityStore, weight_
     if not history:
         st.info("No meal or activity history yet.")
         return
-
-    summaries = [
-        summarize_history_metrics(label="Overall", history=history),
-        summarize_history_metrics(label="Last 7 days", history=history, days=7),
-        summarize_history_metrics(label="Last 30 days", history=history, days=30),
-    ]
-
-    summary_columns = st.columns(3)
-    for column, summary in zip(summary_columns, summaries):
-        with column:
-            st.markdown(f"**{summary.label}**")
-            st.caption(f"{summary.days_count} day(s)")
-            st.metric("Total burn", f"{summary.total_burn:,} cal")
-            st.metric("Total intake", f"{summary.total_intake:,} cal")
-            st.metric("Net calorie difference", f"{summary.calorie_balance:+,} cal")
-            st.metric("Expected weight change", f"{summary.expected_weight_delta_kg:.2f} kg", summary.weight_direction_label)
-            st.metric("Current anchor", f"{summary.anchor_weight_kg:.1f} kg")
-            st.metric("Expected weight", f"{summary.expected_weight_kg:.1f} kg")
-            st.metric(
-                "Latest actual weight",
-                f"{summary.latest_actual_weight_kg:.1f} kg" if summary.latest_actual_weight_kg is not None else "Not logged",
-            )
-            st.metric(
-                "Actual change",
-                f"{summary.actual_weight_delta_kg:.1f} kg" if summary.actual_weight_delta_kg is not None else "Not logged",
-            )
-            st.metric(
-                "Actual vs expected",
-                f"{summary.weight_difference_kg:+.1f} kg" if summary.weight_difference_kg is not None else "Not logged",
-            )
 
     table_rows = [
         {
@@ -354,16 +254,6 @@ def render_history_view(store: MealStore, activity_store: ActivityStore, weight_
         for day in reversed(history)
     ]
 
-    st.caption(
-        f"Daily history runs from {history[0].day.strftime('%Y-%m-%d')} to {history[-1].day.strftime('%Y-%m-%d')}."
-    )
-    st.caption(
-        "Net calorie difference uses `total burn - total intake`. Expected weight change uses `(net calories) / 7,000`, "
-        "with positive net shown as estimated loss and negative net shown as estimated gain."
-    )
-    st.caption(
-        "Expected weight on a weigh-in day is compared against the prior day's projection. After that, the new weigh-in becomes the anchor. If there is no earlier weigh-in, it falls back to 85.3 kg on 2026-06-28."
-    )
     chart_data = pd.DataFrame(
         [
             {
@@ -489,4 +379,45 @@ def render_history_view(store: MealStore, activity_store: ActivityStore, weight_
         )
     )
     st.altair_chart(weight_chart, width="stretch")
+
+    summaries = [
+        summarize_history_metrics(label="Overall", history=history),
+        summarize_history_metrics(label="Last 7 days", history=history, days=7),
+        summarize_history_metrics(label="Last 30 days", history=history, days=30),
+    ]
+
+    summary_columns = st.columns(3)
+    for column, summary in zip(summary_columns, summaries):
+        with column:
+            st.markdown(f"**{summary.label}**")
+            st.caption(f"{summary.days_count} day(s)")
+            st.metric("Total burn", f"{summary.total_burn:,} cal")
+            st.metric("Total intake", f"{summary.total_intake:,} cal")
+            st.metric("Net calorie difference", f"{summary.calorie_balance:+,} cal")
+            st.metric("Expected weight change", f"{summary.expected_weight_delta_kg:.2f} kg", summary.weight_direction_label)
+            st.metric("Current anchor", f"{summary.anchor_weight_kg:.1f} kg")
+            st.metric("Expected weight", f"{summary.expected_weight_kg:.1f} kg")
+            st.metric(
+                "Latest actual weight",
+                f"{summary.latest_actual_weight_kg:.1f} kg" if summary.latest_actual_weight_kg is not None else "Not logged",
+            )
+            st.metric(
+                "Actual change",
+                f"{summary.actual_weight_delta_kg:.1f} kg" if summary.actual_weight_delta_kg is not None else "Not logged",
+            )
+            st.metric(
+                "Actual vs expected",
+                f"{summary.weight_difference_kg:+.1f} kg" if summary.weight_difference_kg is not None else "Not logged",
+            )
+
+    st.caption(
+        f"Daily history runs from {history[0].day.strftime('%Y-%m-%d')} to {history[-1].day.strftime('%Y-%m-%d')}."
+    )
+    st.caption(
+        "Net calorie difference uses `total burn - total intake`. Expected weight change uses `(net calories) / 7,000`, "
+        "with positive net shown as estimated loss and negative net shown as estimated gain."
+    )
+    st.caption(
+        "Expected weight on a weigh-in day is compared against the prior day's projection. After that, the new weigh-in becomes the anchor. If there is no earlier weigh-in, it falls back to 85.3 kg on 2026-06-28."
+    )
     st.dataframe(table_rows, hide_index=True, width="stretch")

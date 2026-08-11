@@ -1,6 +1,6 @@
-# Meal Tracker
+# DietTracker
 
-Local Streamlit meal tracker that turns free-text meal notes into structured calorie estimates using the OpenAI API.
+Personal Streamlit tracker for calories in, calories out, and weight. Free-text meal notes are converted into structured calorie estimates using the OpenAI API.
 
 ## Setup
 
@@ -17,9 +17,10 @@ uv sync
 uv run streamlit run app.py
 ```
 
-## Notes
+## Use
 
 - Default model: `gpt-5.4-mini`
-- Primary flow: enter natural-language meal text, estimate, then save
-- Manual editing is available as a fallback when the parsed time or calories need correction
-- Data is stored locally in `data/meals.json`
+- Enter a natural-language meal, review the estimate, and save it.
+- Add daily active calories and weight in Daily Details.
+- The 200-calorie small-snacks allowance is added automatically each day and can be deleted when it was not needed.
+- Current data is stored locally under `data/`; it will move to Postgres as part of the hosting work.

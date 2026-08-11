@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -12,34 +11,10 @@ from diettracker.config import (
     WEIGHT_BASELINE_KG,
 )
 from diettracker.domain.models import (
-    AlcoholLog,
     DailyActivityLog,
-    EstimatedMealItem,
     MealLog,
-    MeditationLog,
-    MoodEnergyLog,
-    SleepLog,
     WeightLog,
 )
-
-TREAT_KEYWORDS = {
-    "ice cream",
-    "icecream",
-    "dessert",
-    "chocolate",
-    "cake",
-    "cookie",
-    "candy",
-    "brownie",
-    "donut",
-    "pastry",
-    "pudding",
-    "sundae",
-    "gelato",
-    "muffin",
-    "tart",
-    "pie",
-}
 
 # A single meal log can be an incomplete record of a day.  Until at least two
 # meals have been logged, use a neutral day for aggregate calorie and weight
@@ -72,11 +47,6 @@ class WeekMetrics:
     window_end: date
     average_calories: int
     average_active_calories: int
-    average_sleep_score: int
-    total_meditation: int
-    average_mood: float
-    average_energy: float
-    total_drinks: int
     tracked_consumed_total: int
     total_burn: int
     calorie_balance: int
@@ -85,10 +55,6 @@ class WeekMetrics:
     tracked_days_count: int
     meals_count: int
     activity_days_count: int
-    sleep_days_count: int
-    meditation_days_count: int
-    mood_entries_count: int
-    alcohol_days_count: int
 
 
 @dataclass(frozen=True)
@@ -142,38 +108,6 @@ def daily_status(total_calories: int) -> str:
     return "High day"
 
 
-def guess_protein_quality(items: list[EstimatedMealItem]) -> str:
-    if not items:
-        return "low"
-
-    levels = [item.protein_level for item in items]
-    good_count = sum(level == "good" for level in levels)
-    medium_or_better = sum(level in {"medium", "good"} for level in levels)
-
-    if good_count >= 1 and medium_or_better >= max(1, len(levels) // 2):
-        return "good"
-    if medium_or_better >= max(1, len(levels) // 2):
-        return "medium"
-    return "low"
-
-
-def count_matching_items(items: list[EstimatedMealItem], keywords: set[str]) -> int:
-    count = 0
-    for item in items:
-        text = " ".join([item.name, item.notes]).lower()
-        tags = {tag.lower() for tag in item.tags}
-        if any(
-            keyword in tags or re.search(rf"\b{re.escape(keyword)}\b", text) is not None
-            for keyword in keywords
-        ):
-            count += 1
-    return count
-
-
-def average(values: list[float]) -> float:
-    return sum(values) / len(values) if values else 0.0
-
-
 def build_day_metrics(
     meals: list[MealLog],
     activity_log: DailyActivityLog | None,
@@ -212,10 +146,6 @@ def build_week_metrics(
     *,
     meals: list[MealLog],
     activity_logs: list[DailyActivityLog],
-    mood_logs: list[MoodEnergyLog],
-    meditation_logs: list[MeditationLog],
-    sleep_logs: list[SleepLog],
-    alcohol_logs: list[AlcoholLog],
     today: date,
 ) -> WeekMetrics:
     window_end = today
@@ -228,14 +158,6 @@ def build_week_metrics(
     activity_logs_by_day = {
         activity.day: activity for activity in activity_logs if window_start <= activity.day < window_end
     }
-    window_mood_logs = [
-        log for log in mood_logs if window_start <= log.timestamp.astimezone().date() < window_end
-    ]
-    meditation_logs_by_day = {
-        log.day: log for log in meditation_logs if window_start <= log.day < window_end
-    }
-    sleep_logs_by_day = {log.day: log for log in sleep_logs if window_start <= log.day < window_end}
-    alcohol_logs_by_day = {log.day: log for log in alcohol_logs if window_start <= log.day < window_end}
     meals_by_day: dict[date, list[MealLog]] = {}
     for meal in window_meals:
         meals_by_day.setdefault(meal.timestamp.astimezone().date(), []).append(meal)
@@ -266,11 +188,6 @@ def build_week_metrics(
         window_end=window_end,
         average_calories=int(tracked_consumed_total / days_in_window) if days_in_window else 0,
         average_active_calories=int(sum(log.active_calories for log in activity_logs_by_day.values()) / days_in_window) if days_in_window else 0,
-        average_sleep_score=int(average([float(log.sleep_score) for log in sleep_logs_by_day.values()])),
-        total_meditation=sum(log.duration_minutes for log in meditation_logs_by_day.values()),
-        average_mood=average([float(log.mood_score) for log in window_mood_logs]),
-        average_energy=average([float(log.energy_score) for log in window_mood_logs]),
-        total_drinks=sum(log.standard_drinks for log in alcohol_logs_by_day.values()),
         tracked_consumed_total=tracked_consumed_total,
         total_burn=total_burn,
         calorie_balance=calorie_balance,
@@ -279,10 +196,6 @@ def build_week_metrics(
         tracked_days_count=len(complete_meal_days),
         meals_count=len(window_meals),
         activity_days_count=len(activity_logs_by_day),
-        sleep_days_count=len(sleep_logs_by_day),
-        meditation_days_count=len(meditation_logs_by_day),
-        mood_entries_count=len(window_mood_logs),
-        alcohol_days_count=len(alcohol_logs_by_day),
     )
 
 
