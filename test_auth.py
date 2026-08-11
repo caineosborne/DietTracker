@@ -3,7 +3,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import diettracker.auth as auth
-from diettracker.auth import _has_valid_session, hash_password, verify_password
+from diettracker.auth import (
+    LOGIN_EXPIRY_COOKIE,
+    LOGIN_USERNAME_COOKIE,
+    _has_valid_session,
+    hash_password,
+    verify_password,
+)
 
 
 def test_password_hash_verifies_the_original_password() -> None:
@@ -19,8 +25,8 @@ def test_invalid_password_hash_is_rejected() -> None:
 
 def test_login_session_requires_the_right_user_and_a_future_expiry() -> None:
     cookies = {
-        "login_username": "caine",
-        "login_expires_at": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+        LOGIN_USERNAME_COOKIE: "caine",
+        LOGIN_EXPIRY_COOKIE: (datetime.now(UTC) + timedelta(days=1)).isoformat(),
     }
 
     assert _has_valid_session(cookies, "caine")

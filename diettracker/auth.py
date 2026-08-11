@@ -13,9 +13,12 @@ from dotenv import load_dotenv
 from streamlit_cookies_manager import EncryptedCookieManager
 
 
-COOKIE_PREFIX = "diettracker/"
-LOGIN_USERNAME_COOKIE = "login_username"
-LOGIN_EXPIRY_COOKIE = "login_expires_at"
+# The cookie component cannot remove names when its `prefix` option is used.
+# Keep the names unique ourselves instead, so logout reliably removes them.
+COOKIE_PREFIX = ""
+COOKIE_KEY_PARAMS = "diettracker_cookie_key_params"
+LOGIN_USERNAME_COOKIE = "diettracker_login_username"
+LOGIN_EXPIRY_COOKIE = "diettracker_login_expires_at"
 SESSION_LENGTH = timedelta(days=30)
 SCRYPT_N = 2**14
 SCRYPT_R = 8
@@ -97,7 +100,11 @@ def require_login() -> None:
         )
         st.stop()
 
-    cookies = EncryptedCookieManager(prefix=COOKIE_PREFIX, password=session_secret)
+    cookies = EncryptedCookieManager(
+        prefix=COOKIE_PREFIX,
+        key_params_cookie=COOKIE_KEY_PARAMS,
+        password=session_secret,
+    )
     if not cookies.ready():
         st.stop()
 
