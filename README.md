@@ -59,6 +59,7 @@ docker compose stop
 - Add daily active calories and weight in Daily Details.
 - The 200-calorie small-snacks allowance is added automatically each day and can be deleted when it was not needed.
 - Current data is stored in local Postgres. For Railway, its `DATABASE_URL` will replace the local value automatically.
+- The live database stores timestamps as UTC instants. Use the **Time zone** selector in the app sidebar to choose the timezone used for entry, display, and day boundaries; the choice is saved in the database. `APP_TIMEZONE` is only the initial fallback (currently `Asia/Ho_Chi_Minh`).
 - The app requires a username and password. A successful sign-in is remembered in that browser for 30 days; use **Log out** in the sidebar to end it sooner.
 
 ## Railway sign-in settings

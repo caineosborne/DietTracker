@@ -7,7 +7,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from diettracker.config import DAILY_GOAL_CALORIES, WEIGHT_BASELINE_DAY, WEIGHT_BASELINE_KG
+from diettracker.config import DAILY_GOAL_CALORIES, WEIGHT_BASELINE_DAY, WEIGHT_BASELINE_KG, app_timezone
 from diettracker.domain.metrics import (
     build_day_metrics,
     build_history_metrics,
@@ -155,7 +155,7 @@ def render_day_view(
         st.info("No meals logged for this day yet.")
 
     for meal in meals:
-        timestamp_label = meal.timestamp.astimezone().strftime("%a %d %b %H:%M")
+        timestamp_label = meal.timestamp.astimezone(app_timezone()).strftime("%a %d %b %H:%M")
         with st.container(border=True):
             header_columns = st.columns([3, 1, 1])
             header_columns[0].write(f"**{timestamp_label}**")
@@ -175,8 +175,9 @@ def render_day_view(
                     }
                     for item in meal.items
                 ]
-                st.session_state["existing_timestamp_date"] = meal.timestamp.date()
-                st.session_state["existing_timestamp_time"] = meal.timestamp.timetz().replace(tzinfo=None)
+                local_timestamp = meal.timestamp.astimezone(app_timezone())
+                st.session_state["existing_timestamp_date"] = local_timestamp.date()
+                st.session_state["existing_timestamp_time"] = local_timestamp.timetz().replace(tzinfo=None)
                 st.session_state["existing_total_override"] = (
                     meal.user_override if meal.user_override is not None else meal.total_calories_mid
                 )

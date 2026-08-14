@@ -9,6 +9,7 @@ from diettracker.config import (
     RESTING_CALORIES,
     WEIGHT_BASELINE_DAY,
     WEIGHT_BASELINE_KG,
+    app_timezone,
 )
 from diettracker.domain.models import (
     DailyActivityLog,
@@ -91,7 +92,7 @@ class HistorySummaryMetrics:
 
 
 def get_now_local() -> datetime:
-    return datetime.now().astimezone()
+    return datetime.now(tz=app_timezone())
 
 
 def start_of_day(day_value: date, tzinfo: object) -> datetime:
@@ -153,14 +154,14 @@ def build_week_metrics(
     days_in_window = (window_end - window_start).days
 
     window_meals = [
-        meal for meal in meals if window_start <= meal.timestamp.astimezone().date() < window_end
+        meal for meal in meals if window_start <= meal.timestamp.astimezone(app_timezone()).date() < window_end
     ]
     activity_logs_by_day = {
         activity.day: activity for activity in activity_logs if window_start <= activity.day < window_end
     }
     meals_by_day: dict[date, list[MealLog]] = {}
     for meal in window_meals:
-        meals_by_day.setdefault(meal.timestamp.astimezone().date(), []).append(meal)
+        meals_by_day.setdefault(meal.timestamp.astimezone(app_timezone()).date(), []).append(meal)
 
     complete_meal_days = {
         day for day, daily_meals in meals_by_day.items() if len(daily_meals) >= MINIMUM_MEAL_ENTRIES_PER_DAY
@@ -239,7 +240,7 @@ def build_history_metrics(
 ) -> list[HistoryDayMetrics]:
     meals_by_day: dict[date, list[MealLog]] = {}
     for meal in meals:
-        meal_day = meal.timestamp.astimezone().date()
+        meal_day = meal.timestamp.astimezone(app_timezone()).date()
         meals_by_day.setdefault(meal_day, []).append(meal)
 
     activity_by_day = {log.day: log.active_calories for log in activity_logs}

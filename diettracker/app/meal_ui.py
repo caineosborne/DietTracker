@@ -252,7 +252,7 @@ def render_edit_meal(store: MealStore) -> None:
                 meal_id=editing_meal.id,
             )
             store.update(updated_meal)
-            st.session_state["selected_day"] = updated_meal.timestamp.date()
+            st.session_state["selected_day"] = updated_meal.timestamp.astimezone(tzinfo).date()
             clear_existing_editor_state()
             st.rerun()
         if action_columns[1].button("Cancel Edit", width="stretch"):

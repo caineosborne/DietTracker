@@ -4,6 +4,7 @@ import json
 from datetime import date, datetime, time, timedelta
 
 from diettracker.config import SMALL_SNACK_ALLOWANCE_CALORIES
+from diettracker.config import app_timezone
 from diettracker.database import SCHEMA, connection, initialize_database
 from diettracker.domain.models import EstimatedMealItem, MealLog
 
@@ -64,7 +65,7 @@ class MealStore:
             if row["is_small_snack_allowance"]:
                 cursor.execute(
                     f"INSERT INTO {SCHEMA}.small_snack_allowance_removals (day) VALUES (%s) ON CONFLICT DO NOTHING",
-                    (row["consumed_at"].date(),),
+                    (row["consumed_at"].astimezone(app_timezone()).date(),),
                 )
 
     def ensure_small_snack_allowances(self, start_day: date, through_day: date, tzinfo: object) -> int:
@@ -72,7 +73,8 @@ class MealStore:
             return 0
         with connection() as conn, conn.cursor() as cursor:
             cursor.execute(
-                f"SELECT consumed_at::date AS day FROM {SCHEMA}.meals WHERE is_small_snack_allowance"
+                f"SELECT (consumed_at AT TIME ZONE %s)::date AS day FROM {SCHEMA}.meals WHERE is_small_snack_allowance",
+                (getattr(tzinfo, "key", str(tzinfo)),),
             )
             existing_days = {row["day"] for row in cursor.fetchall()}
             cursor.execute(f"SELECT day FROM {SCHEMA}.small_snack_allowance_removals")

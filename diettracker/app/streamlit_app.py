@@ -5,16 +5,36 @@ import streamlit as st
 from diettracker.auth import require_login
 from diettracker.app.dashboard_ui import render_day_view, render_history_view, render_week_view
 from diettracker.app.meal_ui import render_edit_meal, render_meal_section
-from diettracker.config import DEFAULT_MODEL, SMALL_SNACK_ALLOWANCE_START_DAY
+from diettracker.config import (
+    DEFAULT_MODEL,
+    SMALL_SNACK_ALLOWANCE_START_DAY,
+    SUPPORTED_TIMEZONES,
+    app_timezone_name,
+    configure_timezone,
+)
 from diettracker.domain.metrics import get_now_local
 from diettracker.stores.daily_store import ActivityStore, WeightStore
 from diettracker.stores.meal_store import MealStore
+from diettracker.stores.settings_store import SettingsStore
 
 
 def render_app() -> None:
     st.set_page_config(page_title="Meal Tracker", page_icon="🍜", layout="wide")
     require_login()
     st.title("Meal Tracker")
+    settings_store = SettingsStore()
+    saved_timezone = settings_store.get_timezone()
+    configure_timezone(saved_timezone)
+    selected_timezone = st.sidebar.selectbox(
+        "Time zone",
+        options=SUPPORTED_TIMEZONES,
+        index=SUPPORTED_TIMEZONES.index(app_timezone_name()),
+        help="Used for meal times, day boundaries, and Telegram timestamps. The database remains UTC.",
+    )
+    if selected_timezone != app_timezone_name():
+        settings_store.set_timezone(selected_timezone)
+        configure_timezone(selected_timezone)
+        st.rerun()
     st.caption(
         f"Free-text first. Model default: `{DEFAULT_MODEL}`. "
         "Use the editor only when the parsed time or calories need correction."

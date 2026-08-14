@@ -39,6 +39,14 @@ def initialize_database() -> None:
         )
         cursor.execute(
             f"""
+            CREATE TABLE IF NOT EXISTS {SCHEMA}.app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            f"""
             CREATE TABLE IF NOT EXISTS {SCHEMA}.daily_activity (
                 day DATE PRIMARY KEY,
                 payload JSONB NOT NULL

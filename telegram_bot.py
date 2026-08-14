@@ -9,9 +9,11 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from diettracker.domain.meal_builder import build_meal_log
+from diettracker.config import app_timezone, configure_timezone
 from diettracker.domain.metrics import get_now_local
 from diettracker.services.meal_estimator import MealEstimator
 from diettracker.stores.meal_store import MealStore
+from diettracker.stores.settings_store import SettingsStore
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -22,8 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 def get_message_timestamp(update: Update) -> datetime:
+    # Read the shared GUI setting so a location change takes effect without
+    # restarting the bot process.
+    configure_timezone(SettingsStore().get_timezone())
     if update.message and update.message.date:
-        return update.message.date.astimezone()
+        return update.message.date.astimezone(app_timezone())
     return get_now_local()
 
 
@@ -85,6 +90,7 @@ async def add_meal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def main() -> None:
     load_dotenv()
+    configure_timezone(SettingsStore().get_timezone())
 
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
