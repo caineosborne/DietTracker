@@ -52,6 +52,7 @@ def _frontend_origins() -> list[str]:
         "http://localhost:5173",
         "https://diettrackerreact.vercel.app",
         "https://diettrackerreact-fath3m2n4-caineosbornes-projects.vercel.app",
+        "https://diet.caineo.net",
     }
     configured = os.getenv("FRONTEND_URLS") or os.getenv("FRONTEND_URL") or ""
     configured_origins = {
