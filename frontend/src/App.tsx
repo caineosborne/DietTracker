@@ -300,6 +300,11 @@ function TodayView({ dashboard, refresh, notify, setError }: {
             <Metric label="Active" value={`${number.format(dashboard.day_metrics.active_calories)} cal`} />
             <Metric label="Total burn" value={`${number.format(dashboard.day_metrics.total_burn)} cal`} />
           </div>
+          <div className={`net-metric ${dashboard.day_metrics.calorie_balance < 0 ? "surplus" : ""}`}>
+            <span>Net difference</span>
+            <strong>{dashboard.day_metrics.calorie_balance >= 0 ? "+" : ""}{number.format(dashboard.day_metrics.calorie_balance)} <small>cal</small></strong>
+            <p>{number.format(dashboard.day_metrics.total_burn)} burn − {number.format(dashboard.day_metrics.total_calories)} intake</p>
+          </div>
           <div className="projection-card">
             <p className="eyebrow">Weight projection</p>
             <strong>{dashboard.day_metrics.expected_weight_kg.toFixed(1)} <small>kg</small></strong>
@@ -476,13 +481,21 @@ function toPayload(rawText: string, estimate: MealEstimate, override?: number, n
 }
 
 function HistoryView({ dashboard }: { dashboard: Dashboard }) {
-  const recent = dashboard.history.slice(-30);
+  const [range, setRange] = useState<"30" | "all">("30");
+  const chartData = range === "30" ? dashboard.history.slice(-30) : dashboard.history;
   return (
     <section className="history-page">
       <div className="history-heading"><div><p className="eyebrow">Long view</p><h1>Patterns, not perfection.</h1><p>The ledger treats days with fewer than two entries as neutral, so partial logs do not invent a deficit.</p></div><div className="week-stamp"><span>Last 7 complete days</span><strong>{dashboard.week_metrics.expected_weight_delta_kg.toFixed(2)} kg</strong><small>estimated {dashboard.week_metrics.weight_direction_label}</small></div></div>
       <div className="history-summaries">{dashboard.history_summaries.map((summary) => <article key={summary.label}><p>{summary.label}</p><strong>{number.format(summary.total_intake)}</strong><span>calories in</span><div><b>{summary.calorie_balance >= 0 ? "+" : ""}{number.format(summary.calorie_balance)}</b> net calories</div><small>Expected {summary.expected_weight_kg.toFixed(1)} kg</small></article>)}</div>
-      <section className="chart-card"><div className="section-heading"><div><p className="eyebrow">Thirty-day rhythm</p><h2>Calories in and out</h2></div><div className="legend"><span className="in">Intake</span><span className="out">Burn</span></div></div><LineChart data={recent} /></section>
-      <section className="chart-card"><div className="section-heading"><div><p className="eyebrow">Weight trajectory</p><h2>Expected and actual weight</h2></div><div className="legend weight-legend"><span className="expected">Expected</span><span className="actual">Actual</span></div></div><WeightChart data={recent} /></section>
+      <div className="history-chart-controls">
+        <div><span>Graph range</span><small>{range === "30" ? "Last 30 days" : `All ${dashboard.history.length} days`}</small></div>
+        <div className="range-toggle" role="group" aria-label="Graph date range">
+          <button className={range === "30" ? "active" : ""} aria-pressed={range === "30"} onClick={() => setRange("30")}>30 days</button>
+          <button className={range === "all" ? "active" : ""} aria-pressed={range === "all"} onClick={() => setRange("all")}>All</button>
+        </div>
+      </div>
+      <section className="chart-card"><div className="section-heading"><div><p className="eyebrow">{range === "30" ? "Thirty-day rhythm" : "Complete rhythm"}</p><h2>Calories in and out</h2></div><div className="legend"><span className="in">Intake</span><span className="out">Burn</span><span className="net">Net difference</span></div></div><LineChart data={chartData} /></section>
+      <section className="chart-card"><div className="section-heading"><div><p className="eyebrow">Weight trajectory</p><h2>Expected and actual weight</h2></div><div className="legend weight-legend"><span className="expected">Expected</span><span className="actual">Actual</span></div></div><WeightChart data={chartData} /></section>
       <section className="history-table-card"><div className="section-heading"><div><p className="eyebrow">Daily record</p><h2>Recent history</h2></div></div><div className="table-scroll"><table><thead><tr><th>Day</th><th>Intake</th><th>Burn</th><th>Net</th><th>Expected</th><th>Actual</th></tr></thead><tbody>{[...dashboard.history].reverse().map((day) => <tr key={day.day}><td>{day.day}</td><td>{number.format(day.total_intake)}</td><td>{number.format(day.total_burn)}</td><td className={day.calorie_balance >= 0 ? "positive" : "negative"}>{day.calorie_balance >= 0 ? "+" : ""}{number.format(day.calorie_balance)}</td><td>{day.expected_weight_kg.toFixed(1)} kg</td><td>{day.actual_weight_kg == null ? "—" : `${day.actual_weight_kg.toFixed(1)} kg`}</td></tr>)}</tbody></table></div></section>
     </section>
   );
@@ -490,52 +503,61 @@ function HistoryView({ dashboard }: { dashboard: Dashboard }) {
 
 function LineChart({ data }: { data: HistoryDay[] }) {
   const [hovered, setHovered] = useState<number | null>(null);
-  const width = 920, height = 260, pad = 24;
-  const values = data.flatMap((d) => [d.total_intake, d.total_burn, 1900]);
+  const width = 920, height = 280;
+  const plot = { left: 62, right: 22, top: 30, bottom: 28 };
+  const values = data.flatMap((d) => [d.total_intake, d.total_burn, d.calorie_balance, 1900, 0]);
   const min = Math.min(...values) - 150, max = Math.max(...values) + 150;
-  const x = (index: number) => pad + (index / Math.max(data.length - 1, 1)) * (width - pad * 2);
-  const y = (value: number) => height - pad - ((value - min) / Math.max(max - min, 1)) * (height - pad * 2);
-  const path = (key: "total_intake" | "total_burn") => data.map((day, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(day[key]).toFixed(1)}`).join(" ");
+  const x = (index: number) => plot.left + (index / Math.max(data.length - 1, 1)) * (width - plot.left - plot.right);
+  const y = (value: number) => height - plot.bottom - ((value - min) / Math.max(max - min, 1)) * (height - plot.top - plot.bottom);
+  const path = (key: "total_intake" | "total_burn" | "calorie_balance") => data.map((day, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(day[key]).toFixed(1)}`).join(" ");
+  const ticks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
   if (!data.length) return <div className="empty-state">No history yet.</div>;
   const inspect = (event: React.MouseEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     const chartX = ((event.clientX - box.left) / box.width) * width;
-    setHovered(Math.max(0, Math.min(data.length - 1, Math.round(((chartX - pad) / (width - pad * 2)) * (data.length - 1)))));
+    setHovered(Math.max(0, Math.min(data.length - 1, Math.round(((chartX - plot.left) / (width - plot.left - plot.right)) * (data.length - 1)))));
   };
   const selected = hovered == null ? null : data[hovered];
   return <div className="line-chart interactive-chart">
-    {selected && <div className="chart-tooltip" style={{ left: `${(x(hovered!) / width) * 100}%`, transform: hovered! < 3 ? "translateX(0)" : hovered! > data.length - 4 ? "translateX(-100%)" : "translateX(-50%)" }}><strong>{selected.day}</strong><span><i className="intake-dot" />Intake <b>{number.format(selected.total_intake)} cal</b></span><span><i className="burn-dot" />Burn <b>{number.format(selected.total_burn)} cal</b></span><small>{selected.calorie_balance >= 0 ? "+" : ""}{number.format(selected.calorie_balance)} net</small></div>}
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Calories in and calories burned over the last thirty days" onMouseMove={inspect} onMouseLeave={() => setHovered(null)}>
-      <line x1={pad} y1={y(1900)} x2={width - pad} y2={y(1900)} className="goal-line" /><text x={pad + 5} y={y(1900) - 7}>1,900 goal</text><path d={path("total_burn")} className="burn-line" /><path d={path("total_intake")} className="intake-line" />
-      {selected && <g className="hover-markers"><line x1={x(hovered!)} x2={x(hovered!)} y1={pad} y2={height - pad} /><circle cx={x(hovered!)} cy={y(selected.total_burn)} r="5" className="burn-point" /><circle cx={x(hovered!)} cy={y(selected.total_intake)} r="5" className="intake-point" /></g>}
+    {selected && <div className="chart-tooltip" style={{ left: `${(x(hovered!) / width) * 100}%`, transform: x(hovered!) / width < .2 ? "translateX(0)" : x(hovered!) / width > .8 ? "translateX(-100%)" : "translateX(-50%)" }}><strong>{selected.day}</strong><span><i className="intake-dot" />Intake <b>{number.format(selected.total_intake)} cal</b></span><span><i className="burn-dot" />Burn <b>{number.format(selected.total_burn)} cal</b></span><span><i className="net-dot" />Net difference <b>{selected.calorie_balance >= 0 ? "+" : ""}{number.format(selected.calorie_balance)} cal</b></span><small>{selected.calorie_balance >= 0 ? "Burn exceeded intake" : "Intake exceeded burn"}</small></div>}
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Calories in, calories burned and net difference over ${data.length} days`} onMouseMove={inspect} onMouseLeave={() => setHovered(null)}>
+      <text x={plot.left} y="14" className="axis-title">Calories</text>
+      <g className="chart-grid">{ticks.map((tick) => <g key={tick}><line x1={plot.left} y1={y(tick)} x2={width - plot.right} y2={y(tick)} /><text x={plot.left - 9} y={y(tick) + 3} textAnchor="end">{number.format(Math.round(tick))}</text></g>)}</g>
+      <line x1={plot.left} y1={y(0)} x2={width - plot.right} y2={y(0)} className="net-zero-line" /><text x={width - plot.right - 4} y={y(0) - 7} textAnchor="end" className="zero-label">0 net</text>
+      <line x1={plot.left} y1={y(1900)} x2={width - plot.right} y2={y(1900)} className="goal-line" /><text x={plot.left + 5} y={y(1900) - 7}>1,900 goal</text>
+      <path d={path("total_burn")} className="burn-line" /><path d={path("total_intake")} className="intake-line" /><path d={path("calorie_balance")} className="net-line" />
+      {selected && <g className="hover-markers"><line x1={x(hovered!)} x2={x(hovered!)} y1={plot.top} y2={height - plot.bottom} /><circle cx={x(hovered!)} cy={y(selected.total_burn)} r="5" className="burn-point" /><circle cx={x(hovered!)} cy={y(selected.total_intake)} r="5" className="intake-point" /><circle cx={x(hovered!)} cy={y(selected.calorie_balance)} r="5" className="net-point" /></g>}
     </svg><div className="chart-dates"><span>{data[0].day}</span><span>{data[data.length - 1].day}</span></div></div>;
 }
 
 function WeightChart({ data }: { data: HistoryDay[] }) {
   const [hovered, setHovered] = useState<number | null>(null);
-  const width = 920, height = 260, pad = 24;
+  const width = 920, height = 280;
+  const plot = { left: 62, right: 22, top: 30, bottom: 28 };
   const actualPoints = data.map((day, index) => ({ value: day.actual_weight_kg, index })).filter((point): point is { value: number; index: number } => point.value != null);
   const values = [...data.map((day) => day.expected_weight_kg), ...actualPoints.map((point) => point.value)];
   if (!data.length || !values.length) return <div className="empty-state">No weight history yet.</div>;
   const min = Math.floor((Math.min(...values) - .8) * 2) / 2;
   const max = Math.ceil((Math.max(...values) + .8) * 2) / 2;
-  const x = (index: number) => pad + (index / Math.max(data.length - 1, 1)) * (width - pad * 2);
-  const y = (value: number) => height - pad - ((value - min) / Math.max(max - min, 1)) * (height - pad * 2);
+  const x = (index: number) => plot.left + (index / Math.max(data.length - 1, 1)) * (width - plot.left - plot.right);
+  const y = (value: number) => height - plot.bottom - ((value - min) / Math.max(max - min, 1)) * (height - plot.top - plot.bottom);
+  const ticks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
   const expectedPath = data.map((day, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(day.expected_weight_kg).toFixed(1)}`).join(" ");
   const actualPath = actualPoints.map((point, index) => `${index ? "L" : "M"}${x(point.index).toFixed(1)},${y(point.value).toFixed(1)}`).join(" ");
   const inspect = (event: React.MouseEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
     const chartX = ((event.clientX - box.left) / box.width) * width;
-    setHovered(Math.max(0, Math.min(data.length - 1, Math.round(((chartX - pad) / (width - pad * 2)) * (data.length - 1)))));
+    setHovered(Math.max(0, Math.min(data.length - 1, Math.round(((chartX - plot.left) / (width - plot.left - plot.right)) * (data.length - 1)))));
   };
   const selected = hovered == null ? null : data[hovered];
   return <div className="line-chart interactive-chart weight-chart">
-    {selected && <div className="chart-tooltip" style={{ left: `${(x(hovered!) / width) * 100}%`, transform: hovered! < 3 ? "translateX(0)" : hovered! > data.length - 4 ? "translateX(-100%)" : "translateX(-50%)" }}><strong>{selected.day}</strong><span><i className="expected-dot" />Expected <b>{selected.expected_weight_kg.toFixed(1)} kg</b></span><span><i className="actual-dot" />Actual <b>{selected.actual_weight_kg == null ? "Not logged" : `${selected.actual_weight_kg.toFixed(1)} kg`}</b></span>{selected.weight_difference_kg != null && <small>{selected.weight_difference_kg >= 0 ? "+" : ""}{selected.weight_difference_kg.toFixed(1)} kg vs expected</small>}</div>}
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Expected and actual weight over the last thirty days" onMouseMove={inspect} onMouseLeave={() => setHovered(null)}>
-      <text x={pad + 5} y={pad + 2}>{max.toFixed(1)} kg</text><text x={pad + 5} y={height - pad - 5}>{min.toFixed(1)} kg</text>
+    {selected && <div className="chart-tooltip" style={{ left: `${(x(hovered!) / width) * 100}%`, transform: x(hovered!) / width < .2 ? "translateX(0)" : x(hovered!) / width > .8 ? "translateX(-100%)" : "translateX(-50%)" }}><strong>{selected.day}</strong><span><i className="expected-dot" />Expected <b>{selected.expected_weight_kg.toFixed(1)} kg</b></span><span><i className="actual-dot" />Actual <b>{selected.actual_weight_kg == null ? "Not logged" : `${selected.actual_weight_kg.toFixed(1)} kg`}</b></span>{selected.weight_difference_kg != null && <small>{selected.weight_difference_kg >= 0 ? "+" : ""}{selected.weight_difference_kg.toFixed(1)} kg vs expected</small>}</div>}
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Expected and actual weight over ${data.length} days`} onMouseMove={inspect} onMouseLeave={() => setHovered(null)}>
+      <text x={plot.left} y="14" className="axis-title">Weight (kg)</text>
+      <g className="chart-grid">{ticks.map((tick) => <g key={tick}><line x1={plot.left} y1={y(tick)} x2={width - plot.right} y2={y(tick)} /><text x={plot.left - 9} y={y(tick) + 3} textAnchor="end">{tick.toFixed(1)}</text></g>)}</g>
       <path d={expectedPath} className="expected-line" /><path d={actualPath} className="actual-line" />
       {actualPoints.map((point) => <circle key={point.index} cx={x(point.index)} cy={y(point.value)} r="3.5" className="actual-history-point" />)}
-      {selected && <g className="hover-markers"><line x1={x(hovered!)} x2={x(hovered!)} y1={pad} y2={height - pad} /><circle cx={x(hovered!)} cy={y(selected.expected_weight_kg)} r="5" className="expected-point" />{selected.actual_weight_kg != null && <circle cx={x(hovered!)} cy={y(selected.actual_weight_kg)} r="5" className="actual-point" />}</g>}
+      {selected && <g className="hover-markers"><line x1={x(hovered!)} x2={x(hovered!)} y1={plot.top} y2={height - plot.bottom} /><circle cx={x(hovered!)} cy={y(selected.expected_weight_kg)} r="5" className="expected-point" />{selected.actual_weight_kg != null && <circle cx={x(hovered!)} cy={y(selected.actual_weight_kg)} r="5" className="actual-point" />}</g>}
     </svg><div className="chart-dates"><span>{data[0].day}</span><span>{data[data.length - 1].day}</span></div></div>;
 }
 
