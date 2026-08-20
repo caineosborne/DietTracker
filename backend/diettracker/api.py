@@ -63,7 +63,7 @@ def _frontend_origins() -> list[str]:
     return sorted(default_origins | configured_origins)
 
 
-isapp = FastAPI(
+app = FastAPI(
     title="DietTracker API",
     version="1.0.0",
     docs_url=None,
