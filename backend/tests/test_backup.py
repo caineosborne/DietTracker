@@ -63,6 +63,10 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
             f"INSERT INTO {database.SCHEMA}.small_snack_allowance_removals (day) VALUES (%s)",
             (date(2026, 8, 2),),
         )
+        cursor.execute(
+            f"INSERT INTO {database.SCHEMA}.app_settings (key, value) VALUES (%s, %s)",
+            ("timezone", "Asia/Ho_Chi_Minh"),
+        )
 
     backup_path = tmp_path / "diettracker-backup.json"
     assert backup.write_backup(backup_path) == {
@@ -70,6 +74,7 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
         "activity entries": 1,
         "weight entries": 1,
         "removed snack allowances": 1,
+        "settings": 1,
     }
 
     with database.connection() as conn, conn.cursor() as cursor:
@@ -77,6 +82,7 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
         cursor.execute(f"DELETE FROM {database.SCHEMA}.daily_activity")
         cursor.execute(f"DELETE FROM {database.SCHEMA}.weights")
         cursor.execute(f"DELETE FROM {database.SCHEMA}.small_snack_allowance_removals")
+        cursor.execute(f"DELETE FROM {database.SCHEMA}.app_settings")
 
     assert backup.restore_backup(backup_path, replace=True)["meals"] == 1
     restored = backup.export_backup()
@@ -84,3 +90,25 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
     assert restored["daily_activity"] == [activity.model_dump(mode="json")]
     assert restored["weights"] == [weight.model_dump(mode="json")]
     assert restored["small_snack_allowance_removals"] == ["2026-08-02"]
+    assert restored["app_settings"] == {"timezone": "Asia/Ho_Chi_Minh"}
+
+
+def test_version_one_backup_remains_supported(tmp_path):
+    backup_path = tmp_path / "version-one.json"
+    backup_path.write_text(
+        json.dumps(
+            {
+                "format_version": 1,
+                "exported_at": "2026-08-20T00:00:00+00:00",
+                "meals": [],
+                "daily_activity": [],
+                "weights": [],
+                "small_snack_allowance_removals": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = backup.load_backup(backup_path)
+
+    assert loaded["app_settings"] == {}

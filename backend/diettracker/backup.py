@@ -9,7 +9,8 @@ from diettracker.database import SCHEMA, connection, initialize_database
 from diettracker.domain.models import DailyActivityLog, MealLog, WeightLog
 
 
-BACKUP_FORMAT_VERSION = 1
+BACKUP_FORMAT_VERSION = 2
+SUPPORTED_BACKUP_VERSIONS = {1, BACKUP_FORMAT_VERSION}
 
 
 def export_backup() -> dict[str, Any]:
@@ -31,6 +32,9 @@ def export_backup() -> dict[str, Any]:
         cursor.execute(f"SELECT day FROM {SCHEMA}.small_snack_allowance_removals ORDER BY day")
         removed_allowance_days = [row["day"].isoformat() for row in cursor.fetchall()]
 
+        cursor.execute(f"SELECT key, value FROM {SCHEMA}.app_settings ORDER BY key")
+        app_settings = {row["key"]: row["value"] for row in cursor.fetchall()}
+
     return {
         "format_version": BACKUP_FORMAT_VERSION,
         "exported_at": datetime.now(UTC).isoformat(),
@@ -38,6 +42,7 @@ def export_backup() -> dict[str, Any]:
         "daily_activity": activities,
         "weights": weights,
         "small_snack_allowance_removals": removed_allowance_days,
+        "app_settings": app_settings,
     }
 
 
@@ -50,12 +55,16 @@ def write_backup(path: Path) -> dict[str, int]:
 
 def load_backup(path: Path) -> dict[str, Any]:
     backup = json.loads(path.read_text(encoding="utf-8"))
-    if backup.get("format_version") != BACKUP_FORMAT_VERSION:
+    if backup.get("format_version") not in SUPPORTED_BACKUP_VERSIONS:
         raise ValueError("This is not a supported DietTracker backup file.")
 
     required_lists = ("meals", "daily_activity", "weights", "small_snack_allowance_removals")
     if any(not isinstance(backup.get(name), list) for name in required_lists):
         raise ValueError("This backup file is missing DietTracker data.")
+    if backup.get("format_version") == 1:
+        backup["app_settings"] = {}
+    if not isinstance(backup.get("app_settings"), dict):
+        raise ValueError("This backup file has invalid DietTracker settings.")
     return backup
 
 
@@ -66,6 +75,7 @@ def restore_backup(path: Path, *, replace: bool) -> dict[str, int]:
     activities = [DailyActivityLog.model_validate(item) for item in backup["daily_activity"]]
     weights = [WeightLog.model_validate(item) for item in backup["weights"]]
     removed_days = backup["small_snack_allowance_removals"]
+    app_settings = backup["app_settings"]
 
     initialize_database()
     with connection() as conn, conn.cursor() as cursor:
@@ -74,6 +84,7 @@ def restore_backup(path: Path, *, replace: bool) -> dict[str, int]:
             cursor.execute(f"DELETE FROM {SCHEMA}.weights")
             cursor.execute(f"DELETE FROM {SCHEMA}.daily_activity")
             cursor.execute(f"DELETE FROM {SCHEMA}.meals")
+            cursor.execute(f"DELETE FROM {SCHEMA}.app_settings")
 
         for meal in meals:
             cursor.execute(
@@ -111,6 +122,13 @@ def restore_backup(path: Path, *, replace: bool) -> dict[str, int]:
                 (day,),
             )
 
+        for key, value in app_settings.items():
+            cursor.execute(
+                f"INSERT INTO {SCHEMA}.app_settings (key, value) VALUES (%s, %s) "
+                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                (key, value),
+            )
+
     return backup_counts(backup)
 
 
@@ -120,4 +138,5 @@ def backup_counts(backup: dict[str, Any]) -> dict[str, int]:
         "activity entries": len(backup["daily_activity"]),
         "weight entries": len(backup["weights"]),
         "removed snack allowances": len(backup["small_snack_allowance_removals"]),
+        "settings": len(backup["app_settings"]),
     }

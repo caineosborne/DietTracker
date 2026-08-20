@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Iterator
 
+from dotenv import load_dotenv
 from psycopg import Connection, connect
 from psycopg.rows import dict_row
 
 LOCAL_DATABASE_URL = "postgresql://diettracker:diettracker_local@localhost:5432/diettracker"
 SCHEMA = "diettracker"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT.parent / ".env")
 
 
 def database_url() -> str:
