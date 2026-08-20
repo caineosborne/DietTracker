@@ -3,7 +3,7 @@ from __future__ import annotations
 import hmac
 import os
 from dataclasses import asdict
-from datetime import date, datetime, time
+from datetime import date, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -31,7 +31,6 @@ from diettracker.domain.metrics import (
     build_week_metrics,
     daily_status,
     get_now_local,
-    start_of_day,
     summarize_history_metrics,
 )
 from diettracker.domain.models import DailyActivityLog, EstimatedMealItem, MealLog, WeightLog
