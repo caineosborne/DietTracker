@@ -17,6 +17,7 @@ def database_url() -> str:
 
 @contextmanager
 def connection() -> Iterator[Connection]:
+    """Open a short-lived connection for one unit of work, then release it."""
     with connect(database_url(), row_factory=dict_row) as conn:
         yield conn
 

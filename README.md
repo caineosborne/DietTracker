@@ -1,91 +1,59 @@
 # DietTracker
 
-Personal Streamlit tracker for calories in, calories out, and weight. Free-text meal notes are converted into structured calorie estimates using the OpenAI API.
-
-## Setup
-
-1. Copy `.env.example` to `.env` and set `OPENAI_API_KEY`.
-2. Choose a local password hash (the password itself is never saved):
-
-```bash
-uv run python scripts/generate_password_hash.py
-```
-
-Copy the result into `APP_PASSWORD_HASH` in `.env`, then set `APP_USERNAME` and a long random `APP_SESSION_SECRET`.
-
-Keep the password hash single-quoted in `.env`, because Docker Compose otherwise treats its `$` separators as variable references:
+DietTracker is now a React single-page application backed by a stateless FastAPI service. The frontend is built for Vercel; the API and PostgreSQL connection run on Railway.
 
 ```text
-APP_PASSWORD_HASH='scrypt$...'
+DietTracker/
+├── frontend/   React + TypeScript + Vite static site
+├── backend/    FastAPI, domain logic, PostgreSQL stores, tests and scripts
+└── compose.yaml  local PostgreSQL only
 ```
-3. Start the local database:
+
+## Run locally
+
+Start PostgreSQL:
 
 ```bash
 docker compose up -d
 ```
 
-4. Install dependencies:
+Start the API:
 
 ```bash
+cd backend
+cp .env.example .env
 uv sync
+uv run uvicorn app:app --reload
 ```
 
-5. Import the existing JSON history once:
+In another terminal, start React:
 
 ```bash
-uv run python scripts/import_json_data.py
+cd frontend
+cp .env.example .env.local
+npm install
+npm run dev
 ```
 
-6. Run the app:
+Open `http://localhost:5173`.
 
-```bash
-uv run streamlit run app.py
-```
+## Deploy
 
-## Local Postgres
+### Railway API
 
-The app uses the local Postgres service defined in `compose.yaml`. Docker keeps the database data in a named volume, so it remains available after restarting Docker. Your JSON files in `data/` are retained as an unchanged backup/import source.
+1. Create a service from this repository with **Root Directory** set to `backend`.
+2. Link the existing Railway PostgreSQL service so `DATABASE_URL` is available.
+3. Add `OPENAI_API_KEY`, `APP_USERNAME`, `APP_PASSWORD_HASH`, `APP_SESSION_SECRET`, `FRONTEND_URL`, and `COOKIE_SECURE=true`.
+4. Deploy. The checked-in command runs `uvicorn app:app --workers 1`.
+5. Enable **Serverless** in the Railway service settings. `/health` does not open a database connection, so cold starts stay light.
 
-To stop the local database without deleting its data:
+### Vercel frontend
 
-```bash
-docker compose stop
-```
+1. Import the same repository with **Root Directory** set to `frontend`.
+2. Add `VITE_API_URL=https://your-api.up.railway.app`.
+3. Deploy with the Vite preset. The output is a static `dist` site.
+4. Put the resulting Vercel HTTPS origin in Railway's `FRONTEND_URL` and redeploy the API.
 
-## Use
+The React app calls `/health` once when it opens, shows a friendly wake-up screen, and retries transient cold-start errors with short backoffs. It does not poll or keep a persistent connection open. Meal creates carry a stable request ID, daily activity and weight use upserts, and deletes are retry-safe.
 
-- Default model: `gpt-5.4-mini`
-- Enter a natural-language meal, review the estimate, and save it.
-- Add daily active calories and weight in Daily Details.
-- The 200-calorie small-snacks allowance is added automatically each day and can be deleted when it was not needed.
-- Current data is stored in local Postgres. For Railway, its `DATABASE_URL` will replace the local value automatically.
-- The live database stores timestamps as UTC instants. Use the **Time zone** selector in the app sidebar to choose the timezone used for entry, display, and day boundaries; the choice is saved in the database. `APP_TIMEZONE` is only the initial fallback (currently `Asia/Ho_Chi_Minh`).
-- The app requires a username and password. A successful sign-in is remembered in that browser for 30 days; use **Log out** in the sidebar to end it sooner.
-
-## Railway sign-in settings
-
-Before deploying the login branch, add these Railway variables to the DietTracker service:
-
-- `APP_USERNAME` — your chosen username.
-- `APP_PASSWORD_HASH` — the output from `scripts/generate_password_hash.py`.
-- `APP_SESSION_SECRET` — a long, random value used to encrypt the browser sign-in cookie.
-
-Do not put your plaintext password in Railway or Git. Changing `APP_SESSION_SECRET` signs out every browser immediately.
-
-## Backups
-
-Railway's built-in database backups require its Pro plan. For this personal app, create a portable local JSON backup instead:
-
-```bash
-uv run python scripts/export_postgres_backup.py
-```
-
-The backup is saved under `backups/`, which is private and ignored by Git. To back up the Railway database, first open a Railway Postgres tunnel, then run the same command in a second terminal with its local `DATABASE_URL`.
-
-To restore a backup, point the database connection at the target database and run:
-
-```bash
-uv run python scripts/restore_postgres_backup.py backups/diettracker-YYYY-MM-DDTHHMMSSZ.json --replace
-```
-
-`--replace` deliberately replaces the current tracker data, so use it only when you intend to recover from a backup.
+See [backend/README.md](backend/README.md) for API variables, password setup, backups and tests.

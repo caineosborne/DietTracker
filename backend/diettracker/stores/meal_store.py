@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, datetime, time, timedelta
+from uuid import NAMESPACE_URL, uuid5
 
 from diettracker.config import SMALL_SNACK_ALLOWANCE_CALORIES
 from diettracker.config import app_timezone
@@ -17,6 +18,12 @@ class MealStore:
         with connection() as conn, conn.cursor() as cursor:
             cursor.execute(f"SELECT payload FROM {SCHEMA}.meals ORDER BY consumed_at")
             return [MealLog.model_validate(row["payload"]) for row in cursor.fetchall()]
+
+    def get(self, meal_id: str) -> MealLog | None:
+        with connection() as conn, conn.cursor() as cursor:
+            cursor.execute(f"SELECT payload FROM {SCHEMA}.meals WHERE id = %s", (meal_id,))
+            row = cursor.fetchone()
+            return MealLog.model_validate(row["payload"]) if row else None
 
     def append(self, meal: MealLog) -> None:
         self._save(meal)
@@ -87,6 +94,7 @@ class MealStore:
                 timestamp = datetime.combine(current_day, time(hour=20), tzinfo=tzinfo)
                 additions.append(
                     MealLog(
+                        id=str(uuid5(NAMESPACE_URL, f"diettracker:small-snack:{current_day.isoformat()}")),
                         timestamp=timestamp,
                         raw_text="Small snacks allowance",
                         items=[
