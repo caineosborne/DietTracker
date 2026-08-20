@@ -23,7 +23,7 @@ Start the API:
 cd backend
 cp .env.example .env
 uv sync
-uv run uvicorn app:app --reload
+uv run uvicorn diettracker.api:app --reload
 ```
 
 In another terminal, start React:
@@ -44,7 +44,7 @@ Open `http://localhost:5173`.
 1. Create a service from this repository with **Root Directory** set to `backend`.
 2. Link the existing Railway PostgreSQL service so `DATABASE_URL` is available.
 3. Add `OPENAI_API_KEY`, `APP_USERNAME`, `APP_PASSWORD_HASH`, `APP_SESSION_SECRET`, `FRONTEND_URL`, and `COOKIE_SECURE=true`.
-4. Deploy. The checked-in command runs `uvicorn app:app --workers 1`.
+4. Deploy. The checked-in command runs `uvicorn diettracker.api:app --workers 1`.
 5. Enable **Serverless** in the Railway service settings. `/health` does not open a database connection, so cold starts stay light.
 
 ### Vercel frontend

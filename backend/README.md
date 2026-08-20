@@ -7,7 +7,7 @@ FastAPI JSON backend for DietTracker. It is designed for a sleeping Railway serv
 ```bash
 cp .env.example .env
 uv sync
-uv run uvicorn app:app --reload
+uv run uvicorn diettracker.api:app --reload
 ```
 
 The API runs at `http://localhost:8000`. Start PostgreSQL from the repository root with `docker compose up -d`.
@@ -42,4 +42,15 @@ After the first successful deployment, enable **Serverless** in the Railway serv
 
 ```bash
 uv run pytest
+```
+
+Tests live in `tests/` and remain version-controlled. They are not imported by the running API.
+
+## Optional Telegram integration
+
+The retained Telegram bot is isolated from the API under `integrations/` and its packages are not installed in production by default. To use it locally:
+
+```bash
+uv sync --extra telegram
+uv run python -m integrations.telegram_bot
 ```
