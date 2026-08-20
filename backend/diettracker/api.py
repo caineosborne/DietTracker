@@ -49,11 +49,21 @@ load_dotenv(PROJECT_ROOT.parent / ".env")
 
 
 def _frontend_origins() -> list[str]:
-    configured = os.getenv("FRONTEND_URLS") or os.getenv("FRONTEND_URL") or "http://localhost:5173"
-    return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+    default_origins = {
+        "http://localhost:5173",
+        "https://diettrackerreact.vercel.app",
+        "https://diettrackerreact-fath3m2n4-caineosbornes-projects.vercel.app",
+    }
+    configured = os.getenv("FRONTEND_URLS") or os.getenv("FRONTEND_URL") or ""
+    configured_origins = {
+        origin.strip().rstrip("/")
+        for origin in configured.split(",")
+        if origin.strip()
+    }
+    return sorted(default_origins | configured_origins)
 
 
-app = FastAPI(
+isapp = FastAPI(
     title="DietTracker API",
     version="1.0.0",
     docs_url=None,

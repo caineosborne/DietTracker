@@ -31,7 +31,7 @@ Required variables:
 - `APP_USERNAME`
 - `APP_PASSWORD_HASH`
 - `APP_SESSION_SECRET`
-- `FRONTEND_URL` — the final HTTPS Vercel URL, without a trailing slash.
+- `FRONTEND_URLS` — any additional comma-separated HTTPS frontend origins. The production and current preview Vercel origins are already allowed in code.
 - `COOKIE_SECURE=true`
 
 Optional variables are `OPENAI_MODEL` and `APP_TIMEZONE`.
