@@ -374,7 +374,7 @@ function MealComposer({ onReview, onSaved, setError, activeCalories, setActiveCa
         </div>
         <div className="activity-control">
           <span>cal</span>
-          <input id="active-calories" type="number" min="0" max="10000" step="50" value={activeCalories} onChange={(event) => setActiveCalories(Number(event.target.value))} />
+          <input id="active-calories" type="number" min="0" max="10000" step="1" value={activeCalories} onChange={(event) => setActiveCalories(Number(event.target.value))} />
           <button disabled={savingActivity}>{savingActivity ? "Saving…" : "Save activity"}</button>
         </div>
       </form>
@@ -505,12 +505,11 @@ function LineChart({ data }: { data: HistoryDay[] }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const width = 920, height = 280;
   const plot = { left: 62, right: 22, top: 30, bottom: 28 };
-  const values = data.flatMap((d) => [d.total_intake, d.total_burn, d.calorie_balance, 1900, 0]);
-  const min = Math.min(...values) - 150, max = Math.max(...values) + 150;
+  const ticks = [-500, 500, 1500, 2500];
+  const min = ticks[0], max = ticks[ticks.length - 1];
   const x = (index: number) => plot.left + (index / Math.max(data.length - 1, 1)) * (width - plot.left - plot.right);
   const y = (value: number) => height - plot.bottom - ((value - min) / Math.max(max - min, 1)) * (height - plot.top - plot.bottom);
   const path = (key: "total_intake" | "total_burn" | "calorie_balance") => data.map((day, index) => `${index ? "L" : "M"}${x(index).toFixed(1)},${y(day[key]).toFixed(1)}`).join(" ");
-  const ticks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
   if (!data.length) return <div className="empty-state">No history yet.</div>;
   const inspect = (event: React.MouseEvent<SVGSVGElement>) => {
     const box = event.currentTarget.getBoundingClientRect();

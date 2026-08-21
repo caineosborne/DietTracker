@@ -57,3 +57,5 @@ Open `http://localhost:5173`.
 The React app calls `/health` once when it opens, shows a friendly wake-up screen, and retries transient cold-start errors with short backoffs. It does not poll or keep a persistent connection open. Meal creates carry a stable request ID, daily activity and weight use upserts, and deletes are retry-safe.
 
 See [backend/README.md](backend/README.md) for API variables, password setup, backups and tests.
+
+For production and local backup instructions, see [BACKUP_GUIDE.md](BACKUP_GUIDE.md).
