@@ -505,7 +505,7 @@ function LineChart({ data }: { data: HistoryDay[] }) {
   const [hovered, setHovered] = useState<number | null>(null);
   const width = 920, height = 280;
   const plot = { left: 62, right: 22, top: 30, bottom: 28 };
-  const ticks = [-500, 500, 1500, 2500];
+  const ticks = [-1000, 500, 2000, 3500];
   const min = ticks[0], max = ticks[ticks.length - 1];
   const x = (index: number) => plot.left + (index / Math.max(data.length - 1, 1)) * (width - plot.left - plot.right);
   const y = (value: number) => height - plot.bottom - ((value - min) / Math.max(max - min, 1)) * (height - plot.top - plot.bottom);
