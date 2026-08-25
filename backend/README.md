@@ -1,6 +1,6 @@
 # DietTracker API
 
-FastAPI JSON backend for DietTracker. It is designed for a sleeping Railway service: startup does not touch PostgreSQL or OpenAI, `/health` is lightweight, and every database operation uses a short-lived connection.
+FastAPI JSON backend for DietTracker. The Railway service stays online, startup does not touch PostgreSQL or OpenAI, `/health` is lightweight, and every database operation uses a short-lived connection.
 
 ## Local development
 
@@ -36,7 +36,7 @@ Required variables:
 
 Optional variables are `OPENAI_MODEL` and `APP_TIMEZONE`.
 
-After the first successful deployment, enable **Serverless** in the Railway service settings so the service sleeps after inactivity. Keep the healthcheck path as `/health`. Do not add a minimum replica or background worker to this API service.
+Keep the Railway service always online and use `/health` as its healthcheck path. No background worker is required for this API service.
 
 ## Verification
 

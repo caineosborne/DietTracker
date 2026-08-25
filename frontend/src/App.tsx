@@ -2,7 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError, Dashboard, HistoryDay, Meal, MealEstimate, MealItem, MealPayload, api } from "./api";
 import { ArrowIcon, CloseIcon, EditIcon, LeafIcon, PlusIcon, TrashIcon } from "./icons";
 
-type Phase = "waking" | "login" | "ready" | "offline";
+type Phase = "connecting" | "login" | "ready" | "offline";
 type View = "today" | "history";
 type Review = { rawText: string; estimate: MealEstimate; requestId: string; mealId?: string; notes?: string };
 
@@ -27,7 +27,7 @@ function localDateTime(iso: string) {
 }
 
 function App() {
-  const [phase, setPhase] = useState<Phase>("waking");
+  const [phase, setPhase] = useState<Phase>("connecting");
   const [username, setUsername] = useState("");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [view, setView] = useState<View>("today");
@@ -41,21 +41,19 @@ function App() {
   }, []);
 
   const start = useCallback(async () => {
-    setPhase("waking");
+    setPhase("connecting");
     setError("");
     try {
-      await api.health();
-      try {
-        const signedIn = await api.session();
-        setUsername(signedIn.username);
-        await loadDashboard();
-        setPhase("ready");
-      } catch (sessionError) {
-        if (sessionError instanceof ApiError && sessionError.status === 401) setPhase("login");
-        else throw sessionError;
+      const signedIn = await api.session();
+      setUsername(signedIn.username);
+      await loadDashboard();
+      setPhase("ready");
+    } catch (sessionError) {
+      if (sessionError instanceof ApiError && sessionError.status === 401) {
+        setPhase("login");
+        return;
       }
-    } catch {
-      setError("The tracker is taking longer than usual to wake up. Your data is safe.");
+      setError("DietTracker couldn't connect to the server. Please check your connection and try again.");
       setPhase("offline");
     }
   }, [loadDashboard]);
@@ -77,7 +75,7 @@ function App() {
     window.setTimeout(() => setToast(""), 3200);
   };
 
-  if (phase === "waking") return <WakeScreen />;
+  if (phase === "connecting") return <ConnectingScreen />;
   if (phase === "offline") return <OfflineScreen message={error} retry={start} />;
   if (phase === "login") {
     return (
@@ -91,7 +89,7 @@ function App() {
       />
     );
   }
-  if (!dashboard) return <WakeScreen />;
+  if (!dashboard) return <ConnectingScreen />;
 
   return (
     <div className="app-shell">
@@ -125,13 +123,12 @@ function App() {
   );
 }
 
-function WakeScreen() {
+function ConnectingScreen() {
   return (
-    <main className="center-screen wake-screen">
-      <div className="wake-mark"><LeafIcon /></div>
+    <main className="center-screen connecting-screen">
+      <div className="connection-mark"><LeafIcon /></div>
       <p className="eyebrow">DietTracker</p>
-      <h1>Waking your daily ledger</h1>
-      <p>The API sleeps between visits to save compute. This usually takes just a moment.</p>
+      <h1>Connecting to your ledger</h1>
       <div className="pulse-line"><span /></div>
     </main>
   );
@@ -140,11 +137,11 @@ function WakeScreen() {
 function OfflineScreen({ message, retry }: { message: string; retry: () => void }) {
   return (
     <main className="center-screen">
-      <div className="wake-mark muted"><LeafIcon /></div>
-      <p className="eyebrow">Still starting</p>
-      <h1>Let’s give it another nudge.</h1>
+      <div className="connection-mark muted"><LeafIcon /></div>
+      <p className="eyebrow">Connection unavailable</p>
+      <h1>We couldn’t open your ledger.</h1>
       <p>{message}</p>
-      <button className="primary-button" onClick={retry}>Try waking the API again</button>
+      <button className="primary-button" onClick={retry}>Try connecting again</button>
     </main>
   );
 }
@@ -174,7 +171,7 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
           <h1>Notice the day.<br />Then carry on.</h1>
           <p>Meals, movement and weight—kept in one quiet ledger.</p>
         </div>
-        <p className="login-footnote">Your API wakes only when you arrive.</p>
+        <p className="login-footnote">Your private ledger is ready when you are.</p>
       </section>
       <section className="login-form-wrap">
         <form className="login-form" onSubmit={submit}>

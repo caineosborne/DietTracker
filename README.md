@@ -45,7 +45,7 @@ Open `http://localhost:5173`.
 2. Link the existing Railway PostgreSQL service so `DATABASE_URL` is available.
 3. Add `OPENAI_API_KEY`, `APP_USERNAME`, `APP_PASSWORD_HASH`, `APP_SESSION_SECRET`, `FRONTEND_URL`, and `COOKIE_SECURE=true`.
 4. Deploy. The checked-in command runs `uvicorn diettracker.api:app --workers 1`.
-5. Enable **Serverless** in the Railway service settings. `/health` does not open a database connection, so cold starts stay light.
+5. Keep the Railway service always online; the frontend connects to the authenticated API directly on startup.
 
 ### Vercel frontend
 
@@ -54,7 +54,7 @@ Open `http://localhost:5173`.
 3. Deploy with the Vite preset. The output is a static `dist` site.
 4. Put the resulting Vercel HTTPS origin in Railway's `FRONTEND_URL` and redeploy the API.
 
-The React app calls `/health` once when it opens, shows a friendly wake-up screen, and retries transient cold-start errors with short backoffs. It does not poll or keep a persistent connection open. Meal creates carry a stable request ID, daily activity and weight use upserts, and deletes are retry-safe.
+The React app checks the user's session as soon as it opens, without a separate health-check request. It does not poll or keep a persistent connection open. Meal creates carry a stable request ID, daily activity and weight use upserts, and deletes are retry-safe.
 
 See [backend/README.md](backend/README.md) for API variables, password setup, backups and tests.
 

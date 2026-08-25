@@ -153,11 +153,10 @@ export async function request<T>(path: string, init: RequestInit = {}, retries =
     }
     await wait(delays[attempt]);
   }
-  throw lastError instanceof Error ? lastError : new Error("The API is still starting.");
+  throw lastError instanceof Error ? lastError : new Error("Could not connect to the API.");
 }
 
 export const api = {
-  health: () => request<{ status: string }>("/health", {}, 3),
   session: () => request<{ username: string }>("/api/auth/session", {}, 0),
   login: async (username: string, password: string) => {
     const result = await request<{ username: string; token: string }>("/api/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }, 0);

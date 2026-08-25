@@ -35,9 +35,9 @@ h1, h2, h3, p { margin-top: 0; }
 .center-screen { min-height: 100vh; padding: 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(circle at 50% 42%, #fff 0, var(--paper) 52%); }
 .center-screen h1 { font: 500 clamp(35px, 6vw, 58px)/1.05 var(--serif); margin-bottom: 18px; }
 .center-screen > p:not(.eyebrow) { color: var(--muted); max-width: 480px; line-height: 1.7; }
-.wake-mark { width: 74px; height: 74px; display: grid; place-items: center; border-radius: 50%; background: var(--sage); color: var(--forest); margin-bottom: 24px; animation: breathe 2.2s ease-in-out infinite; }
-.wake-mark svg { width: 36px; }
-.wake-mark.muted { animation: none; }
+.connection-mark { width: 74px; height: 74px; display: grid; place-items: center; border-radius: 50%; background: var(--sage); color: var(--forest); margin-bottom: 24px; animation: breathe 2.2s ease-in-out infinite; }
+.connection-mark svg { width: 36px; }
+.connection-mark.muted { animation: none; }
 .pulse-line { width: 180px; height: 2px; overflow: hidden; background: var(--line); margin-top: 24px; }
 .pulse-line span { display: block; height: 100%; width: 45%; background: var(--forest); animation: travel 1.4s ease-in-out infinite; }
 @keyframes travel { from { transform: translateX(-110%); } to { transform: translateX(330%); } }
