@@ -357,6 +357,10 @@ function WeightLossGuide({ dashboard }: {
   const progressMax = Math.max(targetIntake, dashboard.day_metrics.total_calories, 1);
   const targetPosition = (targetIntake / progressMax) * 100;
   const intakePosition = Math.min((dashboard.day_metrics.total_calories / progressMax) * 100, 100);
+  const week = dashboard.week_metrics;
+  const weeklyTarget = deficit * 7;
+  const weeklyDifference = week.calorie_balance - weeklyTarget;
+  const weeklyProgress = Math.min((week.calorie_balance / Math.max(weeklyTarget, 1)) * 100, 100);
   return (
     <section className="guide-page" aria-labelledby="weight-loss-guide">
       <header className="guide-heading">
@@ -379,6 +383,13 @@ function WeightLossGuide({ dashboard }: {
         <article><span>Total burn</span><strong>{number.format(dashboard.day_metrics.total_burn)}</strong><small>Available before deficit</small></article>
         <article className="deficit-step"><span>Your deficit</span><strong>−{number.format(deficit)}</strong><small>Target for today</small></article>
         <article className="intake-step"><span>Intake ceiling</span><strong>{number.format(targetIntake)}</strong><small>To hit your target</small></article>
+      </section>
+
+      <section className={`weekly-reflection ${weeklyDifference < 0 ? "behind" : ""}`} aria-labelledby="weekly-reflection">
+        <div className="weekly-reflection-heading"><div><p className="eyebrow">The longer view</p><h3 id="weekly-reflection">Weekly total</h3><p>Higher and lower days balance across the week.</p></div><div className="weekly-status"><span>7-day calorie balance</span><strong>{week.calorie_balance >= 0 ? "+" : ""}{number.format(week.calorie_balance)} cal</strong><small>{weeklyDifference >= 0 ? `${number.format(weeklyDifference)} cal ahead of target` : `${number.format(Math.abs(weeklyDifference))} cal to weekly target`}</small></div></div>
+        <div className="weekly-progress" aria-label={`${number.format(week.calorie_balance)} calorie deficit against a ${number.format(weeklyTarget)} calorie weekly target`}><span style={{ width: `${Math.max(0, weeklyProgress)}%` }} /></div>
+        <div className="weekly-progress-labels"><span>0</span><span>Weekly target {number.format(weeklyTarget)} cal</span></div>
+        <div className="weekly-details"><span><b>{number.format(week.average_calories)}</b> average intake</span><span><b>{number.format(week.total_burn)}</b> total burn</span><span><b>{number.format(week.average_active_calories)}</b> average active</span><span><b>{week.tracked_days_count}</b> fully logged days</span></div>
       </section>
     </section>
   );
