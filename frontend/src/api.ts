@@ -98,6 +98,7 @@ export type Dashboard = {
   timezone: string;
   supported_timezones: string[];
   daily_goal: number;
+  daily_calorie_deficit: number;
   model: string;
   meals: Meal[];
   activity: { active_calories: number } | null;
@@ -181,6 +182,8 @@ export const api = {
     request(`/api/weight/${day}`, { method: "PUT", body: JSON.stringify({ weight_kg: weightKg }) }),
   saveTimezone: (timezone: string) =>
     request("/api/settings/timezone", { method: "PUT", body: JSON.stringify({ timezone }) }),
+  saveDailyCalorieDeficit: (calories: number) =>
+    request("/api/settings/daily-calorie-deficit", { method: "PUT", body: JSON.stringify({ calories }) }),
 };
 
 export type MealPayload = {

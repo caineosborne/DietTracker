@@ -3,7 +3,7 @@ import { ApiError, Dashboard, HistoryDay, Meal, MealEstimate, MealItem, MealPayl
 import { ArrowIcon, CloseIcon, EditIcon, LeafIcon, PlusIcon, TrashIcon } from "./icons";
 
 type Phase = "connecting" | "login" | "ready" | "offline";
-type View = "today" | "history";
+type View = "today" | "guide" | "history";
 type Review = { rawText: string; estimate: MealEstimate; requestId: string; mealId?: string; notes?: string };
 
 const number = new Intl.NumberFormat("en-US");
@@ -112,11 +112,9 @@ function App() {
       />
       <main>
         {error && <div className="inline-error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
-        {view === "today" ? (
-          <TodayView dashboard={dashboard} refresh={refresh} notify={notify} setError={setError} />
-        ) : (
-          <HistoryView dashboard={dashboard} />
-        )}
+        {view === "today" && <TodayView dashboard={dashboard} refresh={refresh} notify={notify} setError={setError} />}
+        {view === "guide" && <WeightLossGuide dashboard={dashboard} refresh={refresh} notify={notify} setError={setError} />}
+        {view === "history" && <HistoryView dashboard={dashboard} />}
       </main>
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
@@ -201,6 +199,7 @@ function Header(props: {
       <div className="brand-lockup"><span><LeafIcon /></span> DietTracker</div>
       <nav aria-label="Main navigation">
         <button className={props.view === "today" ? "active" : ""} onClick={() => props.setView("today")}>Today</button>
+        <button className={props.view === "guide" ? "active" : ""} onClick={() => props.setView("guide")}>Weight loss guide</button>
         <button className={props.view === "history" ? "active" : ""} onClick={() => props.setView("history")}>History</button>
       </nav>
       <div className="account-menu">
@@ -295,7 +294,7 @@ function TodayView({ dashboard, refresh, notify, setError }: {
           <CaloriePlate total={dashboard.day_metrics.total_calories} goal={dashboard.daily_goal} status={dashboard.day_metrics.status} />
           <div className="metric-pair">
             <Metric label="Active" value={`${number.format(dashboard.day_metrics.active_calories)} cal`} />
-            <Metric label="Total burn" value={`${number.format(dashboard.day_metrics.total_burn)} cal`} />
+            <Metric label="Base burn" value={`${number.format(dashboard.daily_goal)} cal`} />
           </div>
           <div className={`net-metric ${dashboard.day_metrics.calorie_balance < 0 ? "surplus" : ""}`}>
             <span>Net difference</span>
@@ -318,6 +317,66 @@ function TodayView({ dashboard, refresh, notify, setError }: {
       </section>
       {review && <ReviewDialog review={review} close={() => setReview(null)} saved={async () => { setReview(null); await refresh(); notify(review.mealId ? "Meal updated" : "Meal added"); }} setError={setError} />}
     </>
+  );
+}
+
+function WeightLossGuide({ dashboard, refresh, notify, setError }: {
+  dashboard: Dashboard;
+  refresh: (day?: string) => Promise<void>;
+  notify: (message: string) => void;
+  setError: (message: string) => void;
+}) {
+  const [deficit, setDeficit] = useState(dashboard.daily_calorie_deficit);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => setDeficit(dashboard.daily_calorie_deficit), [dashboard.daily_calorie_deficit]);
+
+  const targetIntake = Math.max(0, dashboard.day_metrics.total_burn - deficit);
+  const remaining = targetIntake - dashboard.day_metrics.total_calories;
+  const progressMax = Math.max(targetIntake, dashboard.day_metrics.total_calories, 1);
+  const targetPosition = (targetIntake / progressMax) * 100;
+  const intakePosition = Math.min((dashboard.day_metrics.total_calories / progressMax) * 100, 100);
+  const saveDeficit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await api.saveDailyCalorieDeficit(deficit);
+      await refresh();
+      notify("Daily deficit updated");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "The daily deficit could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="guide-page">
+      <header className="guide-heading">
+        <div><p className="eyebrow">Your daily pace</p><h1>Weight loss guide</h1><p>Plan against today’s burn, including any active calories you log.</p></div>
+        <form className="deficit-control" onSubmit={saveDeficit}>
+          <label htmlFor="daily-deficit">Daily deficit <span>calories</span></label>
+          <div><input id="daily-deficit" type="number" min="0" max="2000" step="50" value={deficit} onChange={(event) => setDeficit(Number(event.target.value))} /><button disabled={saving}>{saving ? "Saving…" : "Save"}</button></div>
+        </form>
+      </header>
+
+      <section className={`guide-hero ${remaining < 0 ? "over" : ""}`} aria-labelledby="guide-status">
+        <p className="eyebrow">Today’s target</p>
+        <h2 id="guide-status">{remaining >= 0 ? `${number.format(remaining)} calories still available` : `${number.format(Math.abs(remaining))} calories over target`}</h2>
+        <p>{remaining >= 0 ? "You can eat this amount and still reach your chosen daily deficit." : "Your logged intake is above the amount that would reach today’s chosen deficit."}</p>
+        <div className="deficit-graph" role="img" aria-label={`You have eaten ${dashboard.day_metrics.total_calories} calories against a target of ${targetIntake} calories to reach a ${deficit} calorie deficit.`}>
+          <div className="deficit-track"><span className="deficit-intake" style={{ width: `${intakePosition}%` }} /><i className="deficit-target" style={{ left: `${targetPosition}%` }} /></div>
+          <div className="deficit-labels"><span>0</span><span className="intake-label" style={{ left: `${intakePosition}%` }}>Eaten {number.format(dashboard.day_metrics.total_calories)}</span><span className="target-label" style={{ left: `${targetPosition}%` }}>Target {number.format(targetIntake)}</span></div>
+        </div>
+      </section>
+
+      <section className="guide-breakdown" aria-label="Daily calorie deficit calculation">
+        <article><span>Base burn</span><strong>{number.format(dashboard.daily_goal)}</strong><small>BMR + normal movement</small></article>
+        <article><span>Active calories</span><strong>+{number.format(dashboard.day_metrics.active_calories)}</strong><small>Added manually</small></article>
+        <article><span>Total burn</span><strong>{number.format(dashboard.day_metrics.total_burn)}</strong><small>Available before deficit</small></article>
+        <article className="deficit-step"><span>Your deficit</span><strong>−{number.format(deficit)}</strong><small>Target for today</small></article>
+        <article className="intake-step"><span>Intake ceiling</span><strong>{number.format(targetIntake)}</strong><small>To hit your target</small></article>
+      </section>
+    </section>
   );
 }
 
@@ -367,7 +426,7 @@ function MealComposer({ onReview, onSaved, setError, activeCalories, setActiveCa
       <form className="activity-entry" onSubmit={(event) => { event.preventDefault(); void saveActivity(); }}>
         <div>
           <span className="activity-icon" aria-hidden="true">↗</span>
-          <label htmlFor="active-calories"><strong>Active calories</strong><small>Movement above your resting baseline</small></label>
+          <label htmlFor="active-calories"><strong>Active calories</strong><small>Exercise beyond your BMR and normal daily movement</small></label>
         </div>
         <div className="activity-control">
           <span>cal</span>
@@ -520,7 +579,6 @@ function LineChart({ data }: { data: HistoryDay[] }) {
       <text x={plot.left} y="14" className="axis-title">Calories</text>
       <g className="chart-grid">{ticks.map((tick) => <g key={tick}><line x1={plot.left} y1={y(tick)} x2={width - plot.right} y2={y(tick)} /><text x={plot.left - 9} y={y(tick) + 3} textAnchor="end">{number.format(Math.round(tick))}</text></g>)}</g>
       <line x1={plot.left} y1={y(0)} x2={width - plot.right} y2={y(0)} className="net-zero-line" /><text x={width - plot.right - 4} y={y(0) - 7} textAnchor="end" className="zero-label">0 net</text>
-      <line x1={plot.left} y1={y(1900)} x2={width - plot.right} y2={y(1900)} className="goal-line" /><text x={plot.left + 5} y={y(1900) - 7}>1,900 goal</text>
       <path d={path("total_burn")} className="burn-line" /><path d={path("total_intake")} className="intake-line" /><path d={path("calorie_balance")} className="net-line" />
       {selected && <g className="hover-markers"><line x1={x(hovered!)} x2={x(hovered!)} y1={plot.top} y2={height - plot.bottom} /><circle cx={x(hovered!)} cy={y(selected.total_burn)} r="5" className="burn-point" /><circle cx={x(hovered!)} cy={y(selected.total_intake)} r="5" className="intake-point" /><circle cx={x(hovered!)} cy={y(selected.calorie_balance)} r="5" className="net-point" /></g>}
     </svg><div className="chart-dates"><span>{data[0].day}</span><span>{data[data.length - 1].day}</span></div></div>;

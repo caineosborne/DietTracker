@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 import unittest
 
-from diettracker.config import RESTING_CALORIES, WEIGHT_BASELINE_DAY
+from diettracker.config import WEIGHT_BASELINE_DAY, WEIGHT_BASELINE_KG, estimated_base_daily_burn, estimated_bmr_calories
 from diettracker.domain.metrics import build_history_metrics, build_week_metrics
 from diettracker.domain.models import DailyActivityLog, MealLog
 
@@ -26,6 +26,10 @@ def activity(day: date, calories: int) -> DailyActivityLog:
 
 
 class IncompleteMealDayMetricsTests(unittest.TestCase):
+    def test_base_burn_is_weight_based_and_excludes_active_calories(self) -> None:
+        self.assertEqual(estimated_bmr_calories(80), 1700)
+        self.assertEqual(estimated_base_daily_burn(80), 2000)
+
     def test_week_uses_neutral_defaults_for_days_with_fewer_than_two_entries(self) -> None:
         today = date(2026, 7, 8)
         incomplete_day = date(2026, 7, 2)
@@ -38,9 +42,10 @@ class IncompleteMealDayMetricsTests(unittest.TestCase):
         )
 
         self.assertEqual(metrics.tracked_days_count, 1)
-        self.assertEqual(metrics.tracked_consumed_total, (6 * RESTING_CALORIES) + 1700)
-        self.assertEqual(metrics.total_burn, (6 * RESTING_CALORIES) + RESTING_CALORIES + 300)
-        self.assertEqual(metrics.calorie_balance, 700)
+        base_burn = estimated_base_daily_burn(WEIGHT_BASELINE_KG)
+        self.assertEqual(metrics.tracked_consumed_total, (6 * base_burn) + 1700)
+        self.assertEqual(metrics.total_burn, (6 * base_burn) + base_burn + 300)
+        self.assertEqual(metrics.calorie_balance, base_burn - 1700 + 300)
 
     def test_history_uses_neutral_defaults_and_does_not_project_weight_change(self) -> None:
         incomplete_day = WEIGHT_BASELINE_DAY + timedelta(days=1)
@@ -52,11 +57,12 @@ class IncompleteMealDayMetricsTests(unittest.TestCase):
             today=complete_day,
         )
 
-        self.assertEqual(history[1].total_intake, RESTING_CALORIES)
-        self.assertEqual(history[1].total_burn, RESTING_CALORIES)
+        base_burn = estimated_base_daily_burn(history[1].expected_weight_kg)
+        self.assertEqual(history[1].total_intake, base_burn)
+        self.assertEqual(history[1].total_burn, base_burn)
         self.assertEqual(history[1].calorie_balance, 0)
         self.assertEqual(history[2].total_intake, 1900)
-        self.assertEqual(history[2].total_burn, RESTING_CALORIES + 200)
+        self.assertEqual(history[2].total_burn, estimated_base_daily_burn(history[2].expected_weight_kg) + 200)
 
 
 if __name__ == "__main__":

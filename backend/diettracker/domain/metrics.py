@@ -5,11 +5,10 @@ from datetime import date, datetime, timedelta
 
 from diettracker.config import (
     CALORIES_PER_KG,
-    DAILY_GOAL_CALORIES,
-    RESTING_CALORIES,
     WEIGHT_BASELINE_DAY,
     WEIGHT_BASELINE_KG,
     app_timezone,
+    estimated_base_daily_burn,
 )
 from diettracker.domain.models import (
     DailyActivityLog,
@@ -21,7 +20,9 @@ from diettracker.domain.models import (
 # meals have been logged, use a neutral day for aggregate calorie and weight
 # calculations rather than projecting a deficit from missing meals.
 MINIMUM_MEAL_ENTRIES_PER_DAY = 2
-NEUTRAL_DAILY_CALORIES = RESTING_CALORIES
+def neutral_daily_calories(expected_weight_kg: float) -> int:
+    """An untracked day is neutral: intake equals its estimated base burn."""
+    return estimated_base_daily_burn(expected_weight_kg)
 
 
 @dataclass(frozen=True)
@@ -99,13 +100,13 @@ def start_of_day(day_value: date, tzinfo: object) -> datetime:
     return datetime.combine(day_value, datetime.min.time(), tzinfo=tzinfo)
 
 
-def daily_status(total_calories: int) -> str:
-    if total_calories < 1800:
+def daily_status(total_calories: int, daily_goal: int) -> str:
+    if total_calories < daily_goal - 250:
         return "Low"
-    if total_calories <= 2200:
-        return "Good deficit"
-    if total_calories <= 2600:
-        return "Maintenance-ish"
+    if total_calories <= daily_goal:
+        return "Within guide"
+    if total_calories <= daily_goal + 400:
+        return "Over guide"
     return "High day"
 
 
@@ -119,8 +120,9 @@ def build_day_metrics(
 ) -> DayMetrics:
     total = sum(meal.total_calories_mid for meal in meals)
     active_calories = activity_log.active_calories if activity_log is not None else 0
-    remaining_calories = DAILY_GOAL_CALORIES - total
-    total_burn = RESTING_CALORIES + active_calories
+    base_burn = estimated_base_daily_burn(expected_weight_kg)
+    remaining_calories = base_burn - total
+    total_burn = base_burn + active_calories
     calorie_balance = total_burn - total
     return DayMetrics(
         total_calories=total,
@@ -170,13 +172,13 @@ def build_week_metrics(
     daily_intake = {
         day: sum(meal.total_calories_mid for meal in meals_by_day[day])
         if day in complete_meal_days
-        else NEUTRAL_DAILY_CALORIES
+        else neutral_daily_calories(WEIGHT_BASELINE_KG)
         for day in days_in_window_range
     }
     daily_burn = {
-        day: RESTING_CALORIES + activity_logs_by_day[day].active_calories
+        day: estimated_base_daily_burn(WEIGHT_BASELINE_KG) + activity_logs_by_day[day].active_calories
         if day in complete_meal_days and day in activity_logs_by_day
-        else NEUTRAL_DAILY_CALORIES
+        else neutral_daily_calories(WEIGHT_BASELINE_KG)
         for day in days_in_window_range
     }
     tracked_consumed_total = sum(daily_intake.values())
@@ -209,7 +211,7 @@ def build_history_day_metrics(
     expected_weight_kg: float,
     actual_weight_log: WeightLog | None,
 ) -> HistoryDayMetrics:
-    total_burn = RESTING_CALORIES + active_calories
+    total_burn = estimated_base_daily_burn(expected_weight_kg) + active_calories
     calorie_balance = total_burn - intake
     return HistoryDayMetrics(
         day=day,
@@ -263,10 +265,10 @@ def build_history_metrics(
         intake = (
             sum(meal.total_calories_mid for meal in daily_meals)
             if has_complete_meal_log
-            else NEUTRAL_DAILY_CALORIES
+            else neutral_daily_calories(expected_weight_kg)
         )
         active_calories = activity_by_day.get(current_day, 0) if has_complete_meal_log else 0
-        calorie_balance = RESTING_CALORIES + active_calories - intake
+        calorie_balance = estimated_base_daily_burn(expected_weight_kg) + active_calories - intake
         history.append(
             build_history_day_metrics(
                 day=current_day,

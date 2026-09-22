@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 
 from diettracker.auth import SESSION_LENGTH, create_session_token, verify_password, verify_session_token
 from diettracker.config import (
-    DAILY_GOAL_CALORIES,
     DEFAULT_MODEL,
     SMALL_SNACK_ALLOWANCE_START_DAY,
     SUPPORTED_TIMEZONES,
@@ -23,6 +22,7 @@ from diettracker.config import (
     WEIGHT_BASELINE_KG,
     app_timezone,
     configure_timezone,
+    estimated_base_daily_burn,
 )
 from diettracker.domain.meal_builder import build_meal_log
 from diettracker.domain.metrics import (
@@ -107,6 +107,10 @@ class WeightRequest(BaseModel):
 
 class TimezoneRequest(BaseModel):
     timezone: str
+
+
+class DailyDeficitRequest(BaseModel):
+    calories: int = Field(ge=0, le=2000)
 
 
 def _auth_settings() -> tuple[str, str, str]:
@@ -224,12 +228,19 @@ def dashboard(
             "selected_day": selected_day,
             "timezone": timezone_name,
             "supported_timezones": SUPPORTED_TIMEZONES,
-            "daily_goal": DAILY_GOAL_CALORIES,
+            "daily_goal": estimated_base_daily_burn(day_metrics.expected_weight_kg),
+            "daily_calorie_deficit": SettingsStore().get_daily_calorie_deficit(),
             "model": DEFAULT_MODEL,
             "meals": day_meals,
             "activity": activity,
             "weight": actual_weight,
-            "day_metrics": {**asdict(day_metrics), "status": daily_status(day_metrics.total_calories)},
+            "day_metrics": {
+                **asdict(day_metrics),
+                "status": daily_status(
+                    day_metrics.total_calories,
+                    estimated_base_daily_burn(day_metrics.expected_weight_kg),
+                ),
+            },
             "week_metrics": asdict(week),
             "history": [asdict(entry) for entry in history],
             "history_summaries": [asdict(summary) for summary in summaries],
@@ -332,3 +343,12 @@ def save_timezone(payload: TimezoneRequest, _: Annotated[str, Depends(require_us
     SettingsStore().set_timezone(payload.timezone)
     configure_timezone(payload.timezone)
     return {"timezone": payload.timezone}
+
+
+@app.put("/api/settings/daily-calorie-deficit")
+def save_daily_calorie_deficit(
+    payload: DailyDeficitRequest,
+    _: Annotated[str, Depends(require_user)],
+) -> dict[str, int]:
+    SettingsStore().set_daily_calorie_deficit(payload.calories)
+    return {"daily_calorie_deficit": payload.calories}
