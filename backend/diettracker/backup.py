@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from diettracker.database import SCHEMA, connection, initialize_database
-from diettracker.domain.models import DailyActivityLog, MealLog, WeightLog
+from diettracker.domain.models import DailyActivityLog, DailyExpectation, MealLog, WeightLog
 
 
-BACKUP_FORMAT_VERSION = 2
-SUPPORTED_BACKUP_VERSIONS = {1, BACKUP_FORMAT_VERSION}
+BACKUP_FORMAT_VERSION = 3
+SUPPORTED_BACKUP_VERSIONS = {1, 2, BACKUP_FORMAT_VERSION}
 
 
 def export_backup() -> dict[str, Any]:
@@ -29,6 +29,12 @@ def export_backup() -> dict[str, Any]:
         cursor.execute(f"SELECT payload FROM {SCHEMA}.weights ORDER BY day")
         weights = [WeightLog.model_validate(row["payload"]).model_dump(mode="json") for row in cursor.fetchall()]
 
+        cursor.execute(f"SELECT payload FROM {SCHEMA}.daily_expectations ORDER BY day")
+        daily_expectations = [
+            DailyExpectation.model_validate(row["payload"]).model_dump(mode="json")
+            for row in cursor.fetchall()
+        ]
+
         cursor.execute(f"SELECT day FROM {SCHEMA}.small_snack_allowance_removals ORDER BY day")
         removed_allowance_days = [row["day"].isoformat() for row in cursor.fetchall()]
 
@@ -41,6 +47,7 @@ def export_backup() -> dict[str, Any]:
         "meals": meals,
         "daily_activity": activities,
         "weights": weights,
+        "daily_expectations": daily_expectations,
         "small_snack_allowance_removals": removed_allowance_days,
         "app_settings": app_settings,
     }
@@ -58,7 +65,15 @@ def load_backup(path: Path) -> dict[str, Any]:
     if backup.get("format_version") not in SUPPORTED_BACKUP_VERSIONS:
         raise ValueError("This is not a supported DietTracker backup file.")
 
-    required_lists = ("meals", "daily_activity", "weights", "small_snack_allowance_removals")
+    if backup.get("format_version") in {1, 2}:
+        backup["daily_expectations"] = []
+    required_lists = (
+        "meals",
+        "daily_activity",
+        "weights",
+        "daily_expectations",
+        "small_snack_allowance_removals",
+    )
     if any(not isinstance(backup.get(name), list) for name in required_lists):
         raise ValueError("This backup file is missing DietTracker data.")
     if backup.get("format_version") == 1:
@@ -74,6 +89,9 @@ def restore_backup(path: Path, *, replace: bool) -> dict[str, int]:
     meals = [MealLog.model_validate(item) for item in backup["meals"]]
     activities = [DailyActivityLog.model_validate(item) for item in backup["daily_activity"]]
     weights = [WeightLog.model_validate(item) for item in backup["weights"]]
+    daily_expectations = [
+        DailyExpectation.model_validate(item) for item in backup["daily_expectations"]
+    ]
     removed_days = backup["small_snack_allowance_removals"]
     app_settings = backup["app_settings"]
 
@@ -81,6 +99,7 @@ def restore_backup(path: Path, *, replace: bool) -> dict[str, int]:
     with connection() as conn, conn.cursor() as cursor:
         if replace:
             cursor.execute(f"DELETE FROM {SCHEMA}.small_snack_allowance_removals")
+            cursor.execute(f"DELETE FROM {SCHEMA}.daily_expectations")
             cursor.execute(f"DELETE FROM {SCHEMA}.weights")
             cursor.execute(f"DELETE FROM {SCHEMA}.daily_activity")
             cursor.execute(f"DELETE FROM {SCHEMA}.meals")
@@ -106,6 +125,7 @@ def restore_backup(path: Path, *, replace: bool) -> dict[str, int]:
 
         day_records = [(record, "daily_activity") for record in activities]
         day_records.extend((record, "weights") for record in weights)
+        day_records.extend((record, "daily_expectations") for record in daily_expectations)
         for record, table in day_records:
             cursor.execute(
                 f"""
@@ -137,6 +157,7 @@ def backup_counts(backup: dict[str, Any]) -> dict[str, int]:
         "meals": len(backup["meals"]),
         "activity entries": len(backup["daily_activity"]),
         "weight entries": len(backup["weights"]),
+        "daily expectations": len(backup["daily_expectations"]),
         "removed snack allowances": len(backup["small_snack_allowance_removals"]),
         "settings": len(backup["app_settings"]),
     }

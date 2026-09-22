@@ -14,6 +14,13 @@ DEFAULT_DAILY_CALORIE_DEFICIT = 500
 CALORIES_PER_KG = 7000
 WEIGHT_BASELINE_DAY = date(2026, 6, 28)
 WEIGHT_BASELINE_KG = 85.3
+# Reporting before this date used a fixed 2,100-calorie daily burn and a
+# 1,900-calorie intake guide. Keep that model explicit so formula changes do
+# not rewrite the legacy report.
+DAILY_EXPECTATION_START_DAY = date(2026, 9, 22)
+LEGACY_BASE_DAILY_BURN_CALORIES = 2100
+LEGACY_EXPECTATION_VERSION = "legacy-fixed-2100-v1"
+WEIGHT_BASED_EXPECTATION_VERSION = "weight-based-v1"
 SMALL_SNACK_ALLOWANCE_START_DAY = date(2026, 7, 14)
 SMALL_SNACK_ALLOWANCE_CALORIES = 200
 

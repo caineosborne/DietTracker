@@ -69,6 +69,14 @@ def initialize_database() -> None:
         )
         cursor.execute(
             f"""
+            CREATE TABLE IF NOT EXISTS {SCHEMA}.daily_expectations (
+                day DATE PRIMARY KEY,
+                payload JSONB NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            f"""
             CREATE TABLE IF NOT EXISTS {SCHEMA}.small_snack_allowance_removals (
                 day DATE PRIMARY KEY
             )

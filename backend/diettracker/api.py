@@ -15,11 +15,15 @@ from pydantic import BaseModel, Field
 
 from diettracker.auth import SESSION_LENGTH, create_session_token, verify_password, verify_session_token
 from diettracker.config import (
+    DAILY_EXPECTATION_START_DAY,
     DEFAULT_MODEL,
+    LEGACY_BASE_DAILY_BURN_CALORIES,
+    LEGACY_EXPECTATION_VERSION,
     SMALL_SNACK_ALLOWANCE_START_DAY,
     SUPPORTED_TIMEZONES,
     WEIGHT_BASELINE_DAY,
     WEIGHT_BASELINE_KG,
+    WEIGHT_BASED_EXPECTATION_VERSION,
     app_timezone,
     configure_timezone,
     estimated_base_daily_burn,
@@ -33,9 +37,9 @@ from diettracker.domain.metrics import (
     get_now_local,
     summarize_history_metrics,
 )
-from diettracker.domain.models import DailyActivityLog, EstimatedMealItem, MealLog, WeightLog
+from diettracker.domain.models import DailyActivityLog, DailyExpectation, EstimatedMealItem, MealLog, WeightLog
 from diettracker.services.meal_estimator import MealEstimator
-from diettracker.stores.daily_store import ActivityStore, WeightStore
+from diettracker.stores.daily_store import ActivityStore, DailyExpectationStore, WeightStore
 from diettracker.stores.meal_store import MealStore
 from diettracker.stores.settings_store import SettingsStore
 
@@ -193,18 +197,27 @@ def dashboard(
     meal_store = MealStore()
     activity_store = ActivityStore()
     weight_store = WeightStore()
+    expectation_store = DailyExpectationStore()
     meal_store.ensure_small_snack_allowances(SMALL_SNACK_ALLOWANCE_START_DAY, now.date(), now.tzinfo)
 
     meals = meal_store.load_all()
     activities = activity_store.load_all()
     weights = weight_store.load_all()
+    configured_daily_deficit = SettingsStore().get_daily_calorie_deficit()
+    generated_expectations = []
     history = build_history_metrics(
         meals=meals,
         activity_logs=activities,
         weight_logs=weights,
         today=max(now.date(), selected_day),
+        daily_expectations=expectation_store.load_all(),
+        snapshot_through=now.date(),
+        generated_expectations=generated_expectations,
     )
+    for expectation in generated_expectations:
+        expectation_store.insert_if_absent(expectation)
     selected_history = next((entry for entry in history if entry.day == selected_day), None)
+    selected_is_legacy = selected_day < DAILY_EXPECTATION_START_DAY
     day_meals = [meal for meal in meals if meal.timestamp.astimezone(app_timezone()).date() == selected_day]
     activity = next((entry for entry in activities if entry.day == selected_day), None)
     actual_weight = next((entry for entry in weights if entry.day == selected_day), None)
@@ -215,8 +228,31 @@ def dashboard(
         selected_history.anchor_weight_kg if selected_history else WEIGHT_BASELINE_KG,
         selected_history.anchor_day if selected_history else WEIGHT_BASELINE_DAY,
         selected_history.expected_weight_kg if selected_history else WEIGHT_BASELINE_KG,
+        (
+            selected_history.base_burn_calories
+            if selected_history
+            else (
+                LEGACY_BASE_DAILY_BURN_CALORIES
+                if selected_is_legacy
+                else estimated_base_daily_burn(WEIGHT_BASELINE_KG)
+            )
+        ),
+        (
+            selected_history.expectation_version
+            if selected_history
+            else (
+                LEGACY_EXPECTATION_VERSION
+                if selected_is_legacy
+                else WEIGHT_BASED_EXPECTATION_VERSION
+            )
+        ),
     )
-    week = build_week_metrics(meals=meals, activity_logs=activities, today=now.date())
+    week = build_week_metrics(
+        meals=meals,
+        activity_logs=activities,
+        today=now.date(),
+        history=history,
+    )
     summaries = [
         summarize_history_metrics(label="Overall", history=history),
         summarize_history_metrics(label="Last 7 days", history=history, days=7),
@@ -228,8 +264,8 @@ def dashboard(
             "selected_day": selected_day,
             "timezone": timezone_name,
             "supported_timezones": SUPPORTED_TIMEZONES,
-            "daily_goal": estimated_base_daily_burn(day_metrics.expected_weight_kg),
-            "daily_calorie_deficit": SettingsStore().get_daily_calorie_deficit(),
+            "daily_goal": day_metrics.base_burn_calories,
+            "daily_calorie_deficit": configured_daily_deficit,
             "model": DEFAULT_MODEL,
             "meals": day_meals,
             "activity": activity,
@@ -238,7 +274,7 @@ def dashboard(
                 **asdict(day_metrics),
                 "status": daily_status(
                     day_metrics.total_calories,
-                    estimated_base_daily_burn(day_metrics.expected_weight_kg),
+                    day_metrics.base_burn_calories,
                 ),
             },
             "week_metrics": asdict(week),
@@ -333,6 +369,14 @@ def save_weight(day: date, payload: WeightRequest, _: Annotated[str, Depends(req
         updated_at=now,
     )
     store.upsert(record)
+    if day >= DAILY_EXPECTATION_START_DAY:
+        DailyExpectationStore().upsert(
+            DailyExpectation(
+                day=day,
+                base_burn_calories=estimated_base_daily_burn(record.weight_kg),
+                calculation_version=WEIGHT_BASED_EXPECTATION_VERSION,
+            )
+        )
     return record
 
 
@@ -350,5 +394,6 @@ def save_daily_calorie_deficit(
     payload: DailyDeficitRequest,
     _: Annotated[str, Depends(require_user)],
 ) -> dict[str, int]:
+    _load_timezone()
     SettingsStore().set_daily_calorie_deficit(payload.calories)
     return {"daily_calorie_deficit": payload.calories}

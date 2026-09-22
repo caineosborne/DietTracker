@@ -58,3 +58,11 @@ class WeightLog(BaseModel):
     weight_kg: float = Field(gt=0)
     created_at: datetime
     updated_at: datetime
+
+
+class DailyExpectation(BaseModel):
+    """The durable base-burn/BMR fact used for one day's reporting."""
+
+    day: date
+    base_burn_calories: int = Field(ge=0)
+    calculation_version: str = Field(min_length=1)

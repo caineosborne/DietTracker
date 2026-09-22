@@ -5,13 +5,18 @@ from datetime import date, datetime, timedelta
 
 from diettracker.config import (
     CALORIES_PER_KG,
+    DAILY_EXPECTATION_START_DAY,
+    LEGACY_BASE_DAILY_BURN_CALORIES,
+    LEGACY_EXPECTATION_VERSION,
     WEIGHT_BASELINE_DAY,
     WEIGHT_BASELINE_KG,
+    WEIGHT_BASED_EXPECTATION_VERSION,
     app_timezone,
     estimated_base_daily_burn,
 )
 from diettracker.domain.models import (
     DailyActivityLog,
+    DailyExpectation,
     MealLog,
     WeightLog,
 )
@@ -20,9 +25,6 @@ from diettracker.domain.models import (
 # meals have been logged, use a neutral day for aggregate calorie and weight
 # calculations rather than projecting a deficit from missing meals.
 MINIMUM_MEAL_ENTRIES_PER_DAY = 2
-def neutral_daily_calories(expected_weight_kg: float) -> int:
-    """An untracked day is neutral: intake equals its estimated base burn."""
-    return estimated_base_daily_burn(expected_weight_kg)
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class DayMetrics:
     active_calories: int
     remaining_calories: int
     total_burn: int
+    base_burn_calories: int
+    expectation_version: str
     calorie_balance: int
     expected_weight_delta_kg: float
     weight_direction_label: str
@@ -63,6 +67,8 @@ class WeekMetrics:
 class HistoryDayMetrics:
     day: date
     total_burn: int
+    base_burn_calories: int
+    expectation_version: str
     total_intake: int
     calorie_balance: int
     expected_weight_delta_kg: float
@@ -117,18 +123,21 @@ def build_day_metrics(
     anchor_weight_kg: float,
     anchor_day: date,
     expected_weight_kg: float,
+    base_burn_calories: int,
+    expectation_version: str,
 ) -> DayMetrics:
     total = sum(meal.total_calories_mid for meal in meals)
     active_calories = activity_log.active_calories if activity_log is not None else 0
-    base_burn = estimated_base_daily_burn(expected_weight_kg)
-    remaining_calories = base_burn - total
-    total_burn = base_burn + active_calories
+    remaining_calories = base_burn_calories - total
+    total_burn = base_burn_calories + active_calories
     calorie_balance = total_burn - total
     return DayMetrics(
         total_calories=total,
         active_calories=active_calories,
         remaining_calories=remaining_calories,
         total_burn=total_burn,
+        base_burn_calories=base_burn_calories,
+        expectation_version=expectation_version,
         calorie_balance=calorie_balance,
         expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG,
         weight_direction_label="Est. loss" if calorie_balance >= 0 else "Est. surplus",
@@ -150,6 +159,7 @@ def build_week_metrics(
     meals: list[MealLog],
     activity_logs: list[DailyActivityLog],
     today: date,
+    history: list[HistoryDayMetrics] | None = None,
 ) -> WeekMetrics:
     window_end = today
     window_start = today - timedelta(days=7)
@@ -169,16 +179,26 @@ def build_week_metrics(
         day for day, daily_meals in meals_by_day.items() if len(daily_meals) >= MINIMUM_MEAL_ENTRIES_PER_DAY
     }
     days_in_window_range = [window_start + timedelta(days=offset) for offset in range(days_in_window)]
+    history_by_day = {entry.day: entry for entry in history or []}
+
+    def reporting_base_burn(day: date) -> int:
+        entry = history_by_day.get(day)
+        if entry is not None:
+            return entry.base_burn_calories
+        if day < DAILY_EXPECTATION_START_DAY:
+            return LEGACY_BASE_DAILY_BURN_CALORIES
+        return estimated_base_daily_burn(WEIGHT_BASELINE_KG)
+
     daily_intake = {
         day: sum(meal.total_calories_mid for meal in meals_by_day[day])
         if day in complete_meal_days
-        else neutral_daily_calories(WEIGHT_BASELINE_KG)
+        else reporting_base_burn(day)
         for day in days_in_window_range
     }
     daily_burn = {
-        day: estimated_base_daily_burn(WEIGHT_BASELINE_KG) + activity_logs_by_day[day].active_calories
+        day: reporting_base_burn(day) + activity_logs_by_day[day].active_calories
         if day in complete_meal_days and day in activity_logs_by_day
-        else neutral_daily_calories(WEIGHT_BASELINE_KG)
+        else reporting_base_burn(day)
         for day in days_in_window_range
     }
     tracked_consumed_total = sum(daily_intake.values())
@@ -210,12 +230,16 @@ def build_history_day_metrics(
     anchor_day: date,
     expected_weight_kg: float,
     actual_weight_log: WeightLog | None,
+    base_burn_calories: int,
+    expectation_version: str,
 ) -> HistoryDayMetrics:
-    total_burn = estimated_base_daily_burn(expected_weight_kg) + active_calories
+    total_burn = base_burn_calories + active_calories
     calorie_balance = total_burn - intake
     return HistoryDayMetrics(
         day=day,
         total_burn=total_burn,
+        base_burn_calories=base_burn_calories,
+        expectation_version=expectation_version,
         total_intake=intake,
         calorie_balance=calorie_balance,
         expected_weight_delta_kg=abs(calorie_balance) / CALORIES_PER_KG,
@@ -239,6 +263,9 @@ def build_history_metrics(
     activity_logs: list[DailyActivityLog],
     weight_logs: list[WeightLog],
     today: date,
+    daily_expectations: list[DailyExpectation] | None = None,
+    snapshot_through: date | None = None,
+    generated_expectations: list[DailyExpectation] | None = None,
 ) -> list[HistoryDayMetrics]:
     meals_by_day: dict[date, list[MealLog]] = {}
     for meal in meals:
@@ -247,6 +274,7 @@ def build_history_metrics(
 
     activity_by_day = {log.day: log.active_calories for log in activity_logs}
     weights_by_day = {log.day: log for log in weight_logs}
+    expectations_by_day = {entry.day: entry for entry in daily_expectations or []}
     tracked_days = sorted(set(meals_by_day) | set(activity_by_day) | set(weights_by_day) | {WEIGHT_BASELINE_DAY})
     if not tracked_days:
         return []
@@ -260,15 +288,40 @@ def build_history_metrics(
     for offset in range(total_days):
         current_day = start_day + timedelta(days=offset)
         current_weight_log = weights_by_day.get(current_day)
+        if current_day < DAILY_EXPECTATION_START_DAY:
+            # Ignore any accidental pre-cutover snapshot: legacy reporting is
+            # always the original fixed 2,100-calorie model.
+            base_burn_calories = LEGACY_BASE_DAILY_BURN_CALORIES
+            expectation_version = LEGACY_EXPECTATION_VERSION
+        else:
+            expectation = expectations_by_day.get(current_day)
+            if expectation is None:
+                burn_weight_kg = (
+                    current_weight_log.weight_kg
+                    if current_weight_log is not None
+                    else expected_weight_kg
+                )
+                expectation = DailyExpectation(
+                    day=current_day,
+                    base_burn_calories=estimated_base_daily_burn(burn_weight_kg),
+                    calculation_version=WEIGHT_BASED_EXPECTATION_VERSION,
+                )
+                if (
+                    generated_expectations is not None
+                    and (snapshot_through is None or current_day <= snapshot_through)
+                ):
+                    generated_expectations.append(expectation)
+            base_burn_calories = expectation.base_burn_calories
+            expectation_version = expectation.calculation_version
         daily_meals = meals_by_day.get(current_day, [])
         has_complete_meal_log = len(daily_meals) >= MINIMUM_MEAL_ENTRIES_PER_DAY
         intake = (
             sum(meal.total_calories_mid for meal in daily_meals)
             if has_complete_meal_log
-            else neutral_daily_calories(expected_weight_kg)
+            else base_burn_calories
         )
         active_calories = activity_by_day.get(current_day, 0) if has_complete_meal_log else 0
-        calorie_balance = estimated_base_daily_burn(expected_weight_kg) + active_calories - intake
+        calorie_balance = base_burn_calories + active_calories - intake
         history.append(
             build_history_day_metrics(
                 day=current_day,
@@ -278,6 +331,8 @@ def build_history_metrics(
                 anchor_day=anchor_day,
                 expected_weight_kg=expected_weight_kg,
                 actual_weight_log=current_weight_log,
+                base_burn_calories=base_burn_calories,
+                expectation_version=expectation_version,
             )
         )
 

@@ -350,8 +350,7 @@ function TodayView({ dashboard, refresh, notify, setError }: {
 function WeightLossGuide({ dashboard }: {
   dashboard: Dashboard;
 }) {
-  const deficit = dailyDeficit(dashboard.daily_calorie_deficit);
-
+  const deficit = dashboard.daily_calorie_deficit;
   const targetIntake = Math.max(0, dashboard.day_metrics.total_burn - deficit);
   const remaining = targetIntake - dashboard.day_metrics.total_calories;
   const progressMax = Math.max(targetIntake, dashboard.day_metrics.total_calories, 1);

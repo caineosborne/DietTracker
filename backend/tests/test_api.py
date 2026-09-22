@@ -4,6 +4,8 @@ from fastapi.testclient import TestClient
 from diettracker import database
 from diettracker.api import app
 from diettracker.auth import hash_password
+from diettracker.config import LEGACY_BASE_DAILY_BURN_CALORIES, estimated_base_daily_burn
+from diettracker.domain.metrics import get_now_local
 from diettracker.stores import daily_store, meal_store, settings_store
 
 
@@ -99,6 +101,13 @@ def test_authenticated_api_round_trip_is_idempotent(monkeypatch, api_database) -
     assert [item["id"] for item in body["meals"]].count(meal["request_id"]) == 1
     assert body["activity"]["active_calories"] == 450
     assert body["weight"]["weight_kg"] == 82.4
+    assert body["daily_goal"] == LEGACY_BASE_DAILY_BURN_CALORIES
+
+    today = get_now_local().date().isoformat()
+    assert client.put(f"/api/weight/{today}", json={"weight_kg": 70}, headers=headers).status_code == 200
+    current_dashboard = client.get(f"/api/dashboard?day={today}", headers=headers)
+    assert current_dashboard.status_code == 200
+    assert current_dashboard.json()["daily_goal"] == estimated_base_daily_burn(70)
 
     assert client.delete(f"/api/meals/{meal['request_id']}", headers=headers).status_code == 204
     assert client.delete(f"/api/meals/{meal['request_id']}", headers=headers).status_code == 204

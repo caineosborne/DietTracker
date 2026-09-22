@@ -1,6 +1,6 @@
 # DietTracker Backup and Restore Guide
 
-DietTracker includes a portable JSON backup tool. A backup contains meals, daily activity, weight entries, removed snack-allowance days, and saved application settings such as the timezone.
+DietTracker includes a portable JSON backup tool. A backup contains meals, daily activity, weight entries, daily calorie-expectation snapshots, removed snack-allowance days, and saved application settings such as the timezone.
 
 Backups are written to a private `backups/` directory that Git ignores. Copy important backups somewhere outside this repository as well—for example, encrypted cloud storage.
 
@@ -93,7 +93,7 @@ DATABASE_URL='PASTE_THE_TUNNEL_CONNECTION_URL_HERE' \
   --replace
 ```
 
-`--replace` deletes the destination's current DietTracker meals, activity, weights, snack-removal records, and settings before importing the backup. It does not drop the PostgreSQL database or affect schemas belonging to other applications.
+`--replace` deletes the destination's current DietTracker meals, activity, weights, daily expectation snapshots, snack-removal records, and settings before importing the backup. It does not drop the PostgreSQL database or affect schemas belonging to other applications.
 
 ## Recommended routine
 

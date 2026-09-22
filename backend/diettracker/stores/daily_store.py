@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from diettracker.config import WEIGHT_BASELINE_DAY, WEIGHT_BASELINE_KG
 from diettracker.database import SCHEMA, connection, initialize_database
-from diettracker.domain.models import DailyActivityLog, WeightLog
+from diettracker.domain.models import DailyActivityLog, DailyExpectation, WeightLog
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
@@ -70,3 +70,20 @@ class WeightStore(PostgresDayStore[WeightLog]):
                 updated_at=now_local,
             )
         )
+
+
+class DailyExpectationStore(PostgresDayStore[DailyExpectation]):
+    def __init__(self) -> None:
+        super().__init__(table="daily_expectations", model_type=DailyExpectation)
+
+    def insert_if_absent(self, record: DailyExpectation) -> None:
+        payload = json.loads(record.model_dump_json())
+        with connection() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {SCHEMA}.{self.table} (day, payload)
+                VALUES (%s, %s::jsonb)
+                ON CONFLICT (day) DO NOTHING
+                """,
+                (record.day, json.dumps(payload)),
+            )

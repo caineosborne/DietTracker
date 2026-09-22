@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 import pytest
 
 from diettracker import backup, database
-from diettracker.domain.models import DailyActivityLog, MealLog, WeightLog
+from diettracker.domain.models import DailyActivityLog, DailyExpectation, MealLog, WeightLog
 
 
 @pytest.fixture
@@ -44,6 +44,11 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
         created_at=datetime(2026, 8, 1, tzinfo=UTC),
         updated_at=datetime(2026, 8, 1, tzinfo=UTC),
     )
+    expectation = DailyExpectation(
+        day=date(2026, 9, 22),
+        base_burn_calories=2000,
+        calculation_version="weight-based-v1",
+    )
 
     database.initialize_database()
     with database.connection() as conn, conn.cursor() as cursor:
@@ -60,6 +65,10 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
             (weight.day, json.dumps(weight.model_dump(mode="json"))),
         )
         cursor.execute(
+            f"INSERT INTO {database.SCHEMA}.daily_expectations (day, payload) VALUES (%s, %s::jsonb)",
+            (expectation.day, json.dumps(expectation.model_dump(mode="json"))),
+        )
+        cursor.execute(
             f"INSERT INTO {database.SCHEMA}.small_snack_allowance_removals (day) VALUES (%s)",
             (date(2026, 8, 2),),
         )
@@ -73,6 +82,7 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
         "meals": 1,
         "activity entries": 1,
         "weight entries": 1,
+        "daily expectations": 1,
         "removed snack allowances": 1,
         "settings": 1,
     }
@@ -81,6 +91,7 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
         cursor.execute(f"DELETE FROM {database.SCHEMA}.meals")
         cursor.execute(f"DELETE FROM {database.SCHEMA}.daily_activity")
         cursor.execute(f"DELETE FROM {database.SCHEMA}.weights")
+        cursor.execute(f"DELETE FROM {database.SCHEMA}.daily_expectations")
         cursor.execute(f"DELETE FROM {database.SCHEMA}.small_snack_allowance_removals")
         cursor.execute(f"DELETE FROM {database.SCHEMA}.app_settings")
 
@@ -89,6 +100,7 @@ def test_export_and_restore_round_trip(temporary_schema, tmp_path):
     assert restored["meals"] == [meal.model_dump(mode="json")]
     assert restored["daily_activity"] == [activity.model_dump(mode="json")]
     assert restored["weights"] == [weight.model_dump(mode="json")]
+    assert restored["daily_expectations"] == [expectation.model_dump(mode="json")]
     assert restored["small_snack_allowance_removals"] == ["2026-08-02"]
     assert restored["app_settings"] == {"timezone": "Asia/Ho_Chi_Minh"}
 
@@ -112,3 +124,4 @@ def test_version_one_backup_remains_supported(tmp_path):
     loaded = backup.load_backup(backup_path)
 
     assert loaded["app_settings"] == {}
+    assert loaded["daily_expectations"] == []

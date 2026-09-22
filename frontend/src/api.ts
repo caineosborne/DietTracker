@@ -38,6 +38,8 @@ export type DayMetrics = {
   active_calories: number;
   remaining_calories: number;
   total_burn: number;
+  base_burn_calories: number;
+  expectation_version: string;
   calorie_balance: number;
   expected_weight_delta_kg: number;
   weight_direction_label: string;
@@ -53,6 +55,8 @@ export type DayMetrics = {
 export type HistoryDay = {
   day: string;
   total_burn: number;
+  base_burn_calories: number;
+  expectation_version: string;
   total_intake: number;
   calorie_balance: number;
   expected_weight_delta_kg: number;
