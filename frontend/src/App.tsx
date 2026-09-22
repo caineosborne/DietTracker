@@ -3,10 +3,15 @@ import { ApiError, Dashboard, HistoryDay, Meal, MealEstimate, MealItem, MealPayl
 import { ArrowIcon, CloseIcon, EditIcon, LeafIcon, PlusIcon, TrashIcon } from "./icons";
 
 type Phase = "connecting" | "login" | "ready" | "offline";
-type View = "today" | "guide" | "history";
+type View = "today" | "history";
 type Review = { rawText: string; estimate: MealEstimate; requestId: string; mealId?: string; notes?: string };
 
 const number = new Intl.NumberFormat("en-US");
+const DEFAULT_DAILY_DEFICIT = 500;
+
+function dailyDeficit(value: number | undefined) {
+  return Number.isFinite(value) ? value! : DEFAULT_DAILY_DEFICIT;
+}
 
 function dayLabel(value: string) {
   return new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(
@@ -99,6 +104,12 @@ function App() {
         username={username}
         timezone={dashboard.timezone}
         timezones={dashboard.supported_timezones}
+        dailyDeficit={dailyDeficit(dashboard.daily_calorie_deficit)}
+        onDailyDeficit={async (calories) => {
+          await api.saveDailyCalorieDeficit(calories);
+          await loadDashboard(dashboard.selected_day);
+          notify("Daily deficit updated");
+        }}
         onTimezone={async (timezone) => {
           await api.saveTimezone(timezone);
           await loadDashboard(dashboard.selected_day);
@@ -113,7 +124,6 @@ function App() {
       <main>
         {error && <div className="inline-error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
         {view === "today" && <TodayView dashboard={dashboard} refresh={refresh} notify={notify} setError={setError} />}
-        {view === "guide" && <WeightLossGuide dashboard={dashboard} refresh={refresh} notify={notify} setError={setError} />}
         {view === "history" && <HistoryView dashboard={dashboard} />}
       </main>
       {toast && <div className="toast" role="status">{toast}</div>}
@@ -191,18 +201,33 @@ function Header(props: {
   username: string;
   timezone: string;
   timezones: string[];
+  dailyDeficit: number;
+  onDailyDeficit: (calories: number) => Promise<void>;
   onTimezone: (timezone: string) => Promise<void>;
   logout: () => Promise<void>;
 }) {
+  const [deficit, setDeficit] = useState(props.dailyDeficit);
+  const [savingDeficit, setSavingDeficit] = useState(false);
+  const [deficitError, setDeficitError] = useState("");
+  useEffect(() => setDeficit(props.dailyDeficit), [props.dailyDeficit]);
+  const weeklyLoss = (deficit * 7) / 7000;
+  const saveDeficit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSavingDeficit(true);
+    setDeficitError("");
+    try { await props.onDailyDeficit(deficit); }
+    catch { setDeficitError("Could not save the deficit."); }
+    finally { setSavingDeficit(false); }
+  };
   return (
     <header className="site-header">
       <div className="brand-lockup"><span><LeafIcon /></span> DietTracker</div>
       <nav aria-label="Main navigation">
         <button className={props.view === "today" ? "active" : ""} onClick={() => props.setView("today")}>Today</button>
-        <button className={props.view === "guide" ? "active" : ""} onClick={() => props.setView("guide")}>Weight loss guide</button>
         <button className={props.view === "history" ? "active" : ""} onClick={() => props.setView("history")}>History</button>
       </nav>
       <div className="account-menu">
+        <form className="header-deficit" onSubmit={saveDeficit}><label htmlFor="header-deficit">Daily deficit</label><input id="header-deficit" type="number" min="0" max="2000" step="50" value={deficit} onChange={(event) => setDeficit(Number(event.target.value))} /><span>cal · ~{weeklyLoss.toFixed(1)} kg/wk</span><button disabled={savingDeficit}>{savingDeficit ? "…" : "Save"}</button>{deficitError && <small role="alert">{deficitError}</small>}</form>
         <label className="timezone-select"><span>Time zone</span><select value={props.timezone} onChange={(e) => void props.onTimezone(e.target.value)}>{props.timezones.map((zone) => <option key={zone}>{zone}</option>)}</select></label>
         <span className="user-name">{props.username}</span>
         <button className="text-button" onClick={() => void props.logout()}>Sign out</button>
@@ -210,6 +235,7 @@ function Header(props: {
       <details className="mobile-account">
         <summary aria-label="Account settings">•••</summary>
         <div>
+          <form className="mobile-deficit" onSubmit={saveDeficit}><label htmlFor="mobile-deficit">Daily deficit<input id="mobile-deficit" type="number" min="0" max="2000" step="50" value={deficit} onChange={(event) => setDeficit(Number(event.target.value))} /></label><small>~{weeklyLoss.toFixed(1)} kg loss per week</small><button disabled={savingDeficit}>{savingDeficit ? "Saving…" : "Save deficit"}</button></form>
           <label>Time zone<select value={props.timezone} onChange={(e) => void props.onTimezone(e.target.value)}>{props.timezones.map((zone) => <option key={zone}>{zone}</option>)}</select></label>
           <button onClick={() => void props.logout()}>Sign out</button>
         </div>
@@ -294,7 +320,7 @@ function TodayView({ dashboard, refresh, notify, setError }: {
           <CaloriePlate total={dashboard.day_metrics.total_calories} goal={dashboard.daily_goal} status={dashboard.day_metrics.status} />
           <div className="metric-pair">
             <Metric label="Active" value={`${number.format(dashboard.day_metrics.active_calories)} cal`} />
-            <Metric label="Base burn" value={`${number.format(dashboard.daily_goal)} cal`} />
+            <Metric label={`Base burn · ${dashboard.day_metrics.expected_weight_kg.toFixed(1)} kg`} value={`${number.format(dashboard.daily_goal)} cal`} />
           </div>
           <div className={`net-metric ${dashboard.day_metrics.calorie_balance < 0 ? "surplus" : ""}`}>
             <span>Net difference</span>
@@ -315,48 +341,26 @@ function TodayView({ dashboard, refresh, notify, setError }: {
           </details>
         </aside>
       </section>
+      <WeightLossGuide dashboard={dashboard} />
       {review && <ReviewDialog review={review} close={() => setReview(null)} saved={async () => { setReview(null); await refresh(); notify(review.mealId ? "Meal updated" : "Meal added"); }} setError={setError} />}
     </>
   );
 }
 
-function WeightLossGuide({ dashboard, refresh, notify, setError }: {
+function WeightLossGuide({ dashboard }: {
   dashboard: Dashboard;
-  refresh: (day?: string) => Promise<void>;
-  notify: (message: string) => void;
-  setError: (message: string) => void;
 }) {
-  const [deficit, setDeficit] = useState(dashboard.daily_calorie_deficit);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => setDeficit(dashboard.daily_calorie_deficit), [dashboard.daily_calorie_deficit]);
+  const deficit = dailyDeficit(dashboard.daily_calorie_deficit);
 
   const targetIntake = Math.max(0, dashboard.day_metrics.total_burn - deficit);
   const remaining = targetIntake - dashboard.day_metrics.total_calories;
   const progressMax = Math.max(targetIntake, dashboard.day_metrics.total_calories, 1);
   const targetPosition = (targetIntake / progressMax) * 100;
   const intakePosition = Math.min((dashboard.day_metrics.total_calories / progressMax) * 100, 100);
-  const saveDeficit = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    try {
-      await api.saveDailyCalorieDeficit(deficit);
-      await refresh();
-      notify("Daily deficit updated");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "The daily deficit could not be saved.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
-    <section className="guide-page">
+    <section className="guide-page" aria-labelledby="weight-loss-guide">
       <header className="guide-heading">
-        <div><p className="eyebrow">Your daily pace</p><h1>Weight loss guide</h1><p>Plan against today’s burn, including any active calories you log.</p></div>
-        <form className="deficit-control" onSubmit={saveDeficit}>
-          <label htmlFor="daily-deficit">Daily deficit <span>calories</span></label>
-          <div><input id="daily-deficit" type="number" min="0" max="2000" step="50" value={deficit} onChange={(event) => setDeficit(Number(event.target.value))} /><button disabled={saving}>{saving ? "Saving…" : "Save"}</button></div>
-        </form>
+        <div><p className="eyebrow">Your daily pace</p><h2 id="weight-loss-guide">Weight loss guide</h2><p>Plan against today’s burn, including any active calories you log.</p></div>
       </header>
 
       <section className={`guide-hero ${remaining < 0 ? "over" : ""}`} aria-labelledby="guide-status">

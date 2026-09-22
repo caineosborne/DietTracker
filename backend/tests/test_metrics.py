@@ -29,6 +29,7 @@ class IncompleteMealDayMetricsTests(unittest.TestCase):
     def test_base_burn_is_weight_based_and_excludes_active_calories(self) -> None:
         self.assertEqual(estimated_bmr_calories(80), 1700)
         self.assertEqual(estimated_base_daily_burn(80), 2000)
+        self.assertEqual(estimated_base_daily_burn(78.2), 1962)
 
     def test_week_uses_neutral_defaults_for_days_with_fewer_than_two_entries(self) -> None:
         today = date(2026, 7, 8)
